@@ -40,22 +40,51 @@ type ChatProvider interface {
 	// ChatArgs is the command line (after the binary) for streaming mode.
 	// perm is AIT's permission setting: "ask" | "edits" | "never".
 	ChatArgs(l Launch, perm string) []string
-	// ChatUser encodes one user message for the agent's stdin.
-	ChatUser(text string, images []Image) []byte
-	// ChatDecode turns one line of the agent's stdout into events.
+	// ChatStart is what to send as soon as the process is up (a protocol
+	// handshake, say). Most agents need nothing: return nil.
+	ChatStart(st *ChatState, l Launch, perm, cwd string) [][]byte
+	// ChatUser encodes one user message for the agent's stdin. It may
+	// return nil and send later via st.Send (e.g. once a handshake is done).
+	ChatUser(st *ChatState, text string, images []Image) []byte
+	// ChatDecode turns one line of the agent's stdout into events. It may
+	// answer the agent through st.Send.
 	ChatDecode(line []byte, st *ChatState) []Ev
 	// ChatReply answers a permission request: decision is allow | always | deny.
-	ChatReply(req, decision string, ask json.RawMessage) []byte
+	ChatReply(st *ChatState, req, decision string, ask json.RawMessage) []byte
 	// ChatControl encodes a control message: "interrupt", or "model:<id>".
-	ChatControl(what string) []byte
+	ChatControl(st *ChatState, what string) []byte
 	// ChatHistory replays a stored transcript as events.
 	ChatHistory(path string) []Ev
 }
 
-// ChatState is per-process decoding state a provider may keep.
+// ChatState is per-process state a provider may keep.
 type ChatState struct {
 	Asks map[string]json.RawMessage // pending permission requests by id
+	Send func([]byte)               // write a line to the agent
+	Data map[string]any             // provider-specific (thread ids, queues …)
+	mu   sync.Mutex
 	seq  int
+}
+
+// Next returns a fresh request id.
+func (s *ChatState) Next() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seq++
+	return s.seq
+}
+
+// Get / Put guard Data.
+func (s *ChatState) Get(k string) any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Data[k]
+}
+
+func (s *ChatState) Put(k string, v any) {
+	s.mu.Lock()
+	s.Data[k] = v
+	s.mu.Unlock()
 }
 
 type Image struct {
@@ -72,6 +101,9 @@ type chatProc struct {
 }
 
 func (c *chatProc) send(b []byte) error {
+	if len(b) == 0 {
+		return nil
+	}
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	_, err := c.stdin.Write(b)
@@ -79,7 +111,7 @@ func (c *chatProc) send(b []byte) error {
 }
 
 // startChat launches the agent in streaming mode. Caller holds t.mu.
-func (a *App) startChat(t *Tab, cp ChatProvider, cmdline []string, env []string) error {
+func (a *App) startChat(t *Tab, cp ChatProvider, cmdline []string, env []string, l Launch, perm string) error {
 	cmd := exec.Command(cmdline[0], cmdline[1:]...)
 	cmd.Dir = t.cwd
 	cmd.Env = env
@@ -99,16 +131,17 @@ func (a *App) startChat(t *Tab, cp ChatProvider, cmdline []string, env []string)
 	}
 	cp2 := &chatProc{cmd: cmd, stdin: stdin, kill: killTree(cmd.Process.Pid)}
 	t.chat = cp2
+	st := &ChatState{Asks: map[string]json.RawMessage{}, Data: map[string]any{}, Send: func(b []byte) { cp2.send(b) }}
+	t.chatState = st
+	for _, line := range cp.ChatStart(st, l, perm, t.cwd) {
+		cp2.send(line)
+	}
 	gen := t.gen.Load()
-	go a.chatPump(t, cp, cp2, stdout, &stderr, gen)
+	go a.chatPump(t, cp, cp2, st, stdout, &stderr, gen)
 	return nil
 }
 
-func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, stdout io.Reader, stderr *strings.Builder, gen int64) {
-	st := &ChatState{Asks: map[string]json.RawMessage{}}
-	t.mu.Lock()
-	t.chatState = st
-	t.mu.Unlock()
+func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, stdout io.Reader, stderr *strings.Builder, gen int64) {
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 1<<20), 64<<20) // agent turns get large
 	for sc.Scan() {
@@ -193,7 +226,10 @@ func (a *App) ChatSend(id int, text string, files []string) error {
 		text += "\n" + quotePath(f)
 	}
 	a.store.Trust(t.cwd) // sending in a folder is consent to work in it
-	return proc.send(cp.ChatUser(strings.TrimSpace(text), imgs))
+	if b := cp.ChatUser(t.chatState, strings.TrimSpace(text), imgs); b != nil {
+		return proc.send(b)
+	}
+	return nil
 }
 
 // ChatAnswer answers a permission card: allow | always | deny.
@@ -210,7 +246,7 @@ func (a *App) ChatAnswer(id int, req, decision string) error {
 	}
 	ask := st.Asks[req]
 	delete(st.Asks, req)
-	return proc.send(cp.ChatReply(req, decision, ask))
+	return proc.send(cp.ChatReply(st, req, decision, ask))
 }
 
 // ChatControl: "interrupt", or "model:<id>".
@@ -230,7 +266,13 @@ func (a *App) ChatControl(id int, what string) error {
 		t.model = m // a handoff relaunches on the same model
 		t.mu.Unlock()
 	}
-	return proc.send(cp.ChatControl(what))
+	t.mu.Lock()
+	st := t.chatState
+	t.mu.Unlock()
+	if b := cp.ChatControl(st, what); b != nil {
+		return proc.send(b)
+	}
+	return nil
 }
 
 // ChatHistory replays the tab's conversation so far (after a resume or an

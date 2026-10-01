@@ -41,7 +41,9 @@ func (c *claude) ChatArgs(l Launch, perm string) []string {
 	return args
 }
 
-func (c *claude) ChatUser(text string, images []Image) []byte {
+func (c *claude) ChatStart(st *ChatState, l Launch, perm, cwd string) [][]byte { return nil }
+
+func (c *claude) ChatUser(st *ChatState, text string, images []Image) []byte {
 	var content []map[string]any
 	for _, im := range images {
 		content = append(content, map[string]any{"type": "image", "source": map[string]any{
@@ -54,7 +56,7 @@ func (c *claude) ChatUser(text string, images []Image) []byte {
 	return append(b, '\n')
 }
 
-func (c *claude) ChatReply(req, decision string, ask json.RawMessage) []byte {
+func (c *claude) ChatReply(st *ChatState, req, decision string, ask json.RawMessage) []byte {
 	var a struct {
 		Input       json.RawMessage `json:"input"`
 		Suggestions json.RawMessage `json:"permission_suggestions"`
@@ -72,7 +74,7 @@ func (c *claude) ChatReply(req, decision string, ask json.RawMessage) []byte {
 	return append(b, '\n')
 }
 
-func (c *claude) ChatControl(what string) []byte {
+func (c *claude) ChatControl(st *ChatState, what string) []byte {
 	req := map[string]any{"subtype": "interrupt"}
 	if m, ok := strings.CutPrefix(what, "model:"); ok {
 		req = map[string]any{"subtype": "set_model"}

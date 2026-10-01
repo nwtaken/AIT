@@ -67,6 +67,8 @@ function openSettings() {
           ${seg("chatView", s.chatView, [["native", "Native"], ["terminal", "Terminal"]])}</div>
         <div class="row"><div><b>File access</b><span>Everywhere lets the AI work in any folder on your drives. Approval prompts still apply.</span></div>
           ${seg("access", s.access || "everywhere", [["everywhere", "Everywhere"], ["folder", "Working folder"]])}</div>
+        <div class="row"><div><b>When every account runs out</b><span>Switch AI carries the conversation over to your next AI (Claude → ChatGPT → Gemini).</span></div>
+          ${seg("crossAI", s.crossAI || "switch", [["switch", "Switch AI"], ["ask", "Ask me"], ["off", "Wait"]])}</div>
         <div class="row"><div><b>Permissions</b><span>What happens when the AI wants to change files or run commands.</span></div>
           ${seg("permissions", s.permissions, [["ask", "Ask me"], ["edits", "Allow edits"], ["never", "Never ask"]])}</div>
         <div class="row"><div><b>Shared memory</b><span>One memory every AI reads and adds to. <code class="st-mem"></code></span></div>

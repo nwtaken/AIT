@@ -943,6 +943,8 @@ async function boot() {
     const tab = tabs.get(id);
     if (tab && kind === "trust") showTrustCard(tab, folder);
   });
+  RT().EventsOn("tab:provider", (id, pid, name, fromName, reason) => { const t = tabs.get(id); if (t?.native) chatProvider(t, pid, name, fromName, reason); updateChrome(); });
+  RT().EventsOn("tab:crossask", (id, to, toName, fromName) => { const t = tabs.get(id); if (t?.native) crossAsk(t, to, toName, fromName); });
   RT().EventsOn("tab:notice", (id, text) => { toast(text); updateChrome(); });
   RT().EventsOn("app:close-requested", confirmQuit);
   RT().EventsOn("update:available", showUpdate);
@@ -974,10 +976,14 @@ async function boot() {
     else if (e.key === "Enter" && list[hSel]) resumeChat(list[hSel]);
   });
 
-  document.addEventListener("mousedown", (e) => { if (!e.target.closest("#menu, #more, #acct")) hideMenu(); });
+  document.addEventListener("mousedown", (e) => {
+    if (!e.target.closest("#menu, #more, #acct")) hideMenu();
+    if (!e.target.closest("#modelpop, .c-model, .sl-model")) closeModelPop();
+  });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       if (answer) settle(false);
+      else if (!$("#modelpop").hidden) closeModelPop();
       else if (settingsOpen()) closeSettings();
       else if (!$("#historyPanel").hidden) closeHistory();
       else hideMenu();

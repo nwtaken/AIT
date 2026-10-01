@@ -601,3 +601,100 @@ func TestUpdaterVerifiesDownloads(t *testing.T) {
 		t.Fatalf("foreign download accepted: %v", err)
 	}
 }
+
+// The Claude catalog scan finds versioned entries, newest first.
+func TestClaudeCatalogScan(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "claude.exe")
+	blob := strings.Repeat("x", 9<<20) + // pushes entries across the first chunk boundary
+		`{id:"claude-opus-5",family:"opus",display_name:"Opus 5",knowledge_cutoff:"May 2026"}` +
+		`{id:"claude-opus-5-5",family:"opus",display_name:"Opus 5.5",knowledge_cutoff:"June 2026"}` +
+		`{id:"claude-3-5-haiku",family:"haiku",display_name:"Haiku 3.5"}` +
+		`{id:"claude-mythos-5",family:"mythos",display_name:"Mythos 5",knowledge_cutoff:"Jan 2026"}`
+	os.WriteFile(exe, []byte(blob), 0o644)
+	c := &claude{userHome: dir}
+	got := scanFile(c, exe, dir)
+	if len(got) != 2 || got[0].Name != "Opus 5.5" || got[1].Name != "Opus 5" || got[0].Family != "Opus" || !got[0].Long {
+		t.Fatalf("catalog: %+v", got)
+	}
+}
+
+// fakeOther is a second chat AI for the cross-AI test: Claude's protocol,
+// another name.
+type fakeOther struct{ fakeChat }
+
+func (f fakeOther) ID() string   { return "codex" }
+func (f fakeOther) Name() string { return "ChatGPT" }
+
+// When every account of an AI is out, the conversation moves to the next AI
+// with a handover file it is told to read.
+func TestCrossAIHandover(t *testing.T) {
+	root, home, cwd := t.TempDir(), t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o644)
+	b, _ := json.Marshal(Config{Accounts: []Account{{ID: "main", Label: "Claude 1"}, {ID: "codex-main", Label: "ChatGPT 1", Provider: "codex"}},
+		StartingDir: cwd, AIOrder: []string{"claude", "codex"}})
+	os.MkdirAll(root, 0o755)
+	os.WriteFile(filepath.Join(root, "config.json"), b, 0o644)
+	t.Setenv("AIT_FAKE_CLI", "1")
+	store, _ := newStoreAt(root, home)
+	cl := registry["claude"].(*claude)
+	registry["claude"] = fakeChat{cl}
+	registry["codex"] = fakeOther{fakeChat{cl}}
+	app := NewApp(store)
+	evs := make(chan Ev, 512)
+	switched := make(chan string, 2)
+	app.emit = func(name string, d ...any) {
+		switch name {
+		case "chat:ev":
+			for _, e := range d[1].([]Ev) {
+				evs <- e
+			}
+		case "tab:provider":
+			switched <- d[1].(string)
+		}
+	}
+	if _, err := app.Open(OpenRequest{ID: 1, Profile: "claude", Cols: 80, Rows: 24}); err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close(1)
+	// A conversation worth handing over.
+	tab := app.tab(1)
+	transcript := filepath.Join(home, ".claude", "projects", projectKey(cwd), "conv.jsonl")
+	os.MkdirAll(filepath.Dir(transcript), 0o755)
+	os.WriteFile(transcript, []byte(`{"type":"user","message":{"content":"add a login page"}}`+"\n"+
+		`{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"Started on login.tsx"},{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"login.tsx"}}]}}`+"\n"), 0o644)
+	tab.mu.Lock()
+	tab.session = transcript
+	gen := tab.gen.Load()
+	tab.mu.Unlock()
+
+	app.handoff(tab, gen, &limitHit{Text: "You've hit your session limit · resets 11pm", Until: time.Now().Add(time.Hour)})
+
+	select {
+	case to := <-switched:
+		if to != "codex" {
+			t.Fatalf("moved to %q", to)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no cross-AI handover")
+	}
+	for end := time.After(5 * time.Second); ; {
+		select {
+		case e := <-evs:
+			text, _ := e["text"].(string)
+			if e["k"] != "delta" || !strings.Contains(text, "taking over a conversation from Claude") {
+				continue
+			}
+			i := strings.Index(text, "file: ")
+			file := strings.TrimSpace(strings.SplitN(text[i+6:], "\n", 2)[0])
+			md, _ := os.ReadFile(file)
+			if !strings.Contains(string(md), "add a login page") || !strings.Contains(string(md), "Created login.tsx") {
+				t.Fatalf("handover file missing the conversation:\n%s", md)
+			}
+			return
+		case <-end:
+			t.Fatal("the next AI was never told to read the handover")
+		}
+	}
+}

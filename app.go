@@ -37,6 +37,7 @@ type Tab struct {
 	launchedAt time.Time //
 	trusted    bool      // the user already trusted cwd in this tab
 	model      string    // model chosen in this tab ("" = default); survives handoffs
+	handover   string    // first message for an AI taking over from another (crossai.go)
 	wait       *time.Timer
 
 	// adopted is false while the tab is a prewarmed standby with no id yet;
@@ -92,6 +93,9 @@ func NewApp(store *Store) *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	if cl, ok := registry["claude"].(*claude); ok {
+		cl.loadCatalog(a.store.root) // model versions for the switcher, in the background
+	}
 	if a.store.Config().AlwaysOnTop {
 		runtime.WindowSetAlwaysOnTop(ctx, true)
 	}
@@ -504,7 +508,7 @@ func (a *App) launch(t *Tab, acct Account, prompt string) error {
 	if cp := chatOf(p); cp != nil && cfg.ChatView != "terminal" {
 		t.native = true
 		argv := append(append([]string{}, cmd...), cp.ChatArgs(l, cfg.Permissions)...)
-		if err := a.startChat(t, cp, argv, env); err != nil {
+		if err := a.startChat(t, cp, argv, env, l, cfg.Permissions); err != nil {
 			return fmt.Errorf("could not start %s: %w", p.Name(), err)
 		}
 		t.acct = acct.ID
@@ -513,7 +517,11 @@ func (a *App) launch(t *Tab, acct Account, prompt string) error {
 			a.claim(t, p.SessionFile(home, t.cwd, l.NewID))
 		}
 		if prompt != "" {
-			t.chat.send(cp.ChatUser(prompt, nil))
+			t.chat.send(cp.ChatUser(t.chatState, prompt, nil))
+		}
+		if t.handover != "" {
+			t.chat.send(cp.ChatUser(t.chatState, t.handover, nil))
+			t.handover = ""
 		}
 		go a.watch(t, t.gen.Load())
 		return nil
@@ -632,6 +640,18 @@ func (a *App) handoff(t *Tab, gen int64, hit *limitHit) {
 			a.notice(t, fmt.Sprintf("%s %s — continued on %s.", from.Label, why, next.Label))
 		}
 		return
+	}
+
+	// Every account of this AI is out: another AI may carry on.
+	if mode := a.store.Config().CrossAI; t.native && mode != "off" {
+		if to, acct, ok := a.nextAI(t.profile); ok {
+			if mode == "ask" {
+				a.emit("tab:crossask", t.id, to.ID(), to.Name(), t.agent.Name())
+			} else if a.crossOver(t, to, acct, "ran out of usage on every account") == nil {
+				a.notice(t, fmt.Sprintf("Every %s account is at its limit — continued on %s.", from.Label, to.Name()))
+				return
+			}
+		}
 	}
 
 	who, at, ok := a.store.EarliestReset(t.profile)

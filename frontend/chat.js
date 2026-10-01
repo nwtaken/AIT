@@ -217,6 +217,9 @@ function chatEvents(tab, evs, live = true) {
       case "quota":
         c.quota = e;
         break;
+      case "ctx":
+        c.ctx = e.ctx;
+        break;
       case "user":
         hideWelcome(c, true);
         userTurn(c, e.text, [], false);
@@ -415,6 +418,18 @@ function toolInfo(name, input, cwdFolder) {
       for (const e of i.edits || []) { del.push(...lines(e.old_string)); add.push(...lines(e.new_string)); }
       return { label: "Edit", detail: rel(i.file_path), diff: { add, del } };
     }
+    case "Patch": {
+      const add = [], del = [];
+      for (const ch of i.changes || []) {
+        if (ch.kind === "add") add.push(...lines(ch.diff));
+        else for (const l of lines(ch.diff)) {
+          if (l.startsWith("+") && !l.startsWith("+++")) add.push(l.slice(1));
+          else if (l.startsWith("-") && !l.startsWith("---")) del.push(l.slice(1));
+        }
+      }
+      const n = (i.changes || []).length;
+      return { label: (i.changes || [])[0]?.kind === "add" ? "Create" : "Edit", detail: rel(i.file_path) + (n > 1 ? ` (+${n - 1} more)` : ""), diff: { add, del } };
+    }
     case "Grep": return { label: "Search", detail: i.pattern || "", sub: i.path ? rel(i.path) : "" };
     case "Glob": return { label: "Find", detail: i.pattern || "" };
     case "WebFetch": return { label: "Fetch", detail: i.url || "" };
@@ -554,7 +569,7 @@ function answerAsk(tab, req, d) {
 }
 
 function verbFor(tool) {
-  return { Bash: "run a command", PowerShell: "run a command", Write: "create a file", Edit: "edit a file", MultiEdit: "edit a file",
+  return { Bash: "run a command", PowerShell: "run a command", Write: "create a file", Edit: "edit a file", MultiEdit: "edit a file", Patch: "change files",
     WebFetch: "open a web page", WebSearch: "search the web", NotebookEdit: "edit a notebook" }[tool] || `use ${tool}`;
 }
 
@@ -634,6 +649,35 @@ function exitCard(tab, text) {
     if (cur) API().Switch(tab.id, cur.id).catch((err) => toast(String(err)));
   });
   c.thread.append(el);
+}
+
+// Every account of this AI is out and the user asked to be asked.
+function crossAsk(tab, to, toName, fromName) {
+  const c = tab.chat;
+  const el = document.createElement("div");
+  el.className = "askcard cross anim";
+  el.innerHTML = `
+    <div class="ak-h"><span class="ak-glyph">${icon(to)}</span><span><b>Every ${esc(fromName)} account is at its limit</b><span class="ak-d">${esc(toName)} can carry on with this conversation from here.</span></span></div>
+    <div class="ak-act"><button class="btn go">Continue on ${esc(toName)}</button><button class="btn quiet">Wait for ${esc(fromName)}</button></div>`;
+  el.querySelector(".go").addEventListener("click", async () => {
+    el.querySelector(".ak-act").innerHTML = '<span class="ak-res">Moving the conversation…</span>';
+    try { await API().ContinueOn(tab.id, to); } catch (err) { toast(String(err)); }
+  });
+  el.querySelector(".quiet").addEventListener("click", () => { el.querySelector(".ak-act").innerHTML = `<span class="ak-res">Waiting for ${esc(fromName)} to reset</span>`; });
+  c.thread.append(el);
+  scrollEnd(c, true);
+}
+
+// The tab now runs another AI: same thread, new agent.
+function chatProvider(tab, id, name, fromName, reason) {
+  const c = tab.chat;
+  tab.profile = id;
+  tab.el.querySelector(".icon").innerHTML = icon(id);
+  c.model = ""; c.modelChoice = ""; c.modelLabel = ""; c.commands = [];
+  c.ta.placeholder = `Message ${name}   ·   / for commands`;
+  chatDivider(tab, `↻ Continued on ${name} — ${fromName} ${reason}`);
+  setBusy(tab, true);
+  renderStatus(tab);
 }
 
 function chatDivider(tab, text) {
@@ -764,34 +808,90 @@ function pickPalette(tab) {
   c.ta.focus();
 }
 
-// The model switcher: every agent's models, grouped. A model of this tab's
-// agent switches in place; another agent's opens a new tab on it.
+// The model picker: only this chat's AI, its models grouped by family with
+// a pill per version. Each chat keeps its own choice.
 function modelMenu(tab) {
   const c = tab.chat;
-  const items = [];
-  const agents = ui.profiles.filter((p) => p.agent);
-  const mine = agents.find((p) => p.id === tab.profile);
-  for (const p of [mine, ...agents.filter((x) => x !== mine)].filter(Boolean)) {
-    const here = p.id === tab.profile;
-    items.push({ header: here ? `${p.name} · this tab` : p.name });
-    if (!p.installed) {
-      const hint = INSTALL_HINT[p.id] || "";
-      items.push({ cls: "disabled", html: `<span class="icon">${icon(p.id)}</span><span class="label">Not installed<span class="sub">${esc(hint)}</span></span>${hint ? '<span class="key">copy</span>' : ""}`,
-        run: () => { if (hint) { RT().ClipboardSetText(hint); toast("Install command copied", 2000); } } });
-      continue;
-    }
-    for (const m of p.models || []) {
-      const cur = here && (c.modelChoice ?? "") === m.id;
-      items.push({
-        cls: cur ? "current" : "",
-        html: `<span class="${here ? "radio" : "icon"}">${here ? "" : icon(p.id)}</span><span class="label">${esc(m.name)}<span class="sub">${esc(m.desc || "")}</span></span>${here ? "" : '<span class="key">new tab</span>'}`,
-        run: () => here ? setModel(tab, m.id, m.name) : openTab(p.id, { model: m.id }),
-      });
-    }
+  const pop = $("#modelpop");
+  if (!pop.hidden && pop.tab === tab) { closeModelPop(); return; }
+  hideMenu();
+  const prof = profile(tab.profile);
+  const models = prof.models || [];
+  const choice = (c.modelChoice ?? "").replace(/\[1m\]$/, "");
+  const long = /\[1m\]$/.test(c.modelChoice || "");
+
+  // group by family, keeping the order the AI gives (newest first)
+  const fams = [];
+  for (const m of models.filter((m) => m.id)) {
+    const f = m.family || m.name;
+    let g = fams.find((x) => x.name === f);
+    if (!g) fams.push(g = { name: f, desc: m.desc, list: [] });
+    g.list.push(m);
   }
-  items.push("-", { html: `<span class="icon"><span class="mdl">&#xE70F;</span></span><span class="label">Other model…<span class="sub">Type any model ID</span></span>`,
-    run: () => { c.ta.value = "/model "; autosize(c.ta); c.ta.focus(); } });
-  showMenu(c.root.querySelector(".c-model"), items, false, true);
+  const order = ["Fable", "Opus", "Sonnet", "Haiku"];
+  fams.sort((a, b) => (order.indexOf(a.name) + 1 || 99) - (order.indexOf(b.name) + 1 || 99));
+  const pillLabel = (m, fam) => {
+    const rest = m.name.startsWith(fam) ? m.name.slice(fam.length).replace(/^[\s-]+/, "") : m.name;
+    return rest.replace(/\s*\(latest\)$/, "") || m.name;
+  };
+  const hasLong = models.some((m) => m.long);
+
+  pop.innerHTML = `
+    <div class="mp-h"><span class="mp-i">${icon(prof.id)}</span><b>${esc(prof.name)} models</b><span class="mp-acct">${esc(tab.account || "")}</span></div>
+    <div class="mp-list">
+      <button class="mp-def ${choice === "" ? "on" : ""}" data-id=""><span class="mp-radio"></span><span><b>Default</b><span>${esc(models[0]?.desc || "Your settings")}</span></span></button>
+      ${fams.map((g) => {
+        const extra = g.list.length > 4;
+        return `<div class="mp-fam ${g.list.some((m) => m.id === choice) ? "has" : ""}">
+          <div class="mp-ft"><b>${esc(g.name)}</b><span>${esc(g.desc || "")}</span></div>
+          <div class="mp-pills">${g.list.map((m, n) => `<button class="mp-pill ${m.id === choice ? "on" : ""} ${n >= 4 ? "more" : ""}" data-id="${esc(m.id)}" data-name="${esc(m.name)}" data-long="${m.long ? 1 : 0}" title="${esc(m.name)}${m.desc && m.desc !== g.desc ? " — " + esc(m.desc) : ""}">${esc(pillLabel(m, g.name))}</button>`).join("")}
+          ${extra ? `<button class="mp-showall">+${g.list.length - 4}</button>` : ""}</div>
+        </div>`;
+      }).join("")}
+    </div>
+    <div class="mp-f">
+      ${hasLong ? `<button class="mp-long ${long ? "on" : ""}" title="Use a 1M-token context window where the model supports it"><span class="switch ${long ? "on" : ""}"><i></i></span>1M context</button>` : ""}
+      <span class="mp-custom"><input placeholder="Other model ID" spellcheck="false"><span class="mdl">&#xE751;</span></span>
+    </div>`;
+
+  const pick = (id, name, supportsLong) => {
+    const useLong = pop.querySelector(".mp-long")?.classList.contains("on") && supportsLong && id;
+    const full = useLong ? id + "[1m]" : id;
+    setModel(tab, full, useLong ? name + " · 1M" : name);
+    closeModelPop();
+  };
+  pop.querySelector(".mp-def").addEventListener("click", () => pick("", "Default", false));
+  pop.querySelectorAll(".mp-pill").forEach((b) => b.addEventListener("click", () => pick(b.dataset.id, b.dataset.name, b.dataset.long === "1")));
+  pop.querySelectorAll(".mp-showall").forEach((b) => b.addEventListener("click", () => { b.parentElement.classList.add("all"); b.remove(); }));
+  pop.querySelector(".mp-long")?.addEventListener("click", (e) => {
+    const b = e.currentTarget;
+    b.classList.toggle("on");
+    b.querySelector(".switch").classList.toggle("on");
+    const cur = models.find((m) => m.id === choice);
+    if (cur?.long) pick(cur.id, cur.name, true); // re-apply to the chosen model
+  });
+  const inp = pop.querySelector(".mp-custom input");
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && inp.value.trim()) pick(inp.value.trim(), inp.value.trim(), false);
+    if (e.key === "Escape") closeModelPop();
+  });
+
+  const chip = c.root.querySelector(".c-model");
+  chip.classList.add("open");
+  pop.tab = tab;
+  pop.hidden = false;
+  const r = chip.getBoundingClientRect();
+  const w = pop.offsetWidth;
+  pop.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + "px";
+  pop.style.top = Math.max(46, r.top - pop.offsetHeight - 8) + "px";
+}
+
+function closeModelPop() {
+  const pop = $("#modelpop");
+  if (pop.hidden) return;
+  pop.hidden = true;
+  pop.tab?.chat?.root.querySelector(".c-model")?.classList.remove("open");
+  if (pop.tab) chatFocus(pop.tab);
 }
 
 const INSTALL_HINT = {
@@ -879,7 +979,8 @@ function renderStatus(tab) {
   if (!c) return;
   fillBoot(tab);
   const r = c.root;
-  const live = prettyModel(c.model);
+  const known = (profile(tab.profile).models || []).find((m) => m.id && (m.id === c.model || m.id === (c.modelChoice || "").replace(/\[1m\]$/, "")));
+  const live = (c.model && (profile(tab.profile).models || []).find((m) => m.id === c.model)?.name) || prettyModel(c.model) || (known && c.modelChoice ? c.modelLabel : "");
   r.querySelector(".sl-model").textContent = live || profile(tab.profile).name;
   r.querySelector(".cm-name").textContent = live || c.modelLabel || "Default";
   r.querySelector(".sl-name").textContent = tab.account || "";

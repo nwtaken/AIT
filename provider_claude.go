@@ -168,21 +168,21 @@ func (c *claude) TrustAnswer(all, fresh string) (string, bool) {
 // trustCursor finds the highlighted option: "❯ No, exit", "❯ 1. Yes, proceed".
 var trustCursor = regexp.MustCompile(`❯ (?:\d\. )?(Yes|No)\b`)
 
-// Models uses the CLI's family aliases, which always resolve to the newest
-// model of that family (measured in Claude Code 2.1.286: fable, opus,
-// sonnet, haiku, and [1m] long-context variants), so the list never goes
-// stale. The exact version shows in the status line from the live session.
+// Models: every current version from the installed CLI's own catalog
+// (models.go), newest first; the family aliases until that scan is done.
 func (c *claude) Models() []Model {
-	return []Model{
-		{ID: "", Name: "Default", Desc: "Your Claude settings"},
-		{ID: "fable", Name: "Fable", Desc: "Newest, most capable"},
-		{ID: "opus", Name: "Opus", Desc: "Deep reasoning"},
-		{ID: "sonnet", Name: "Sonnet", Desc: "Fast and capable"},
-		{ID: "haiku", Name: "Haiku", Desc: "Fastest, cheapest"},
-		{ID: "fable[1m]", Name: "Fable · 1M context", Desc: "For very large codebases"},
-		{ID: "opus[1m]", Name: "Opus · 1M context", Desc: "For very large codebases"},
-		{ID: "sonnet[1m]", Name: "Sonnet · 1M context", Desc: "For very large codebases"},
+	out := []Model{{ID: "", Name: "Default", Desc: "Your Claude settings"}}
+	catalog.mu.Lock()
+	ms := catalog.models
+	catalog.mu.Unlock()
+	if len(ms) > 0 {
+		return append(out, ms...)
 	}
+	for _, f := range []string{"fable", "opus", "sonnet", "haiku"} {
+		name := strings.ToUpper(f[:1]) + f[1:]
+		out = append(out, Model{ID: f, Name: name + " (latest)", Family: name, Desc: claudeFamilies[f], Long: longContext[f]})
+	}
+	return out
 }
 
 func (c *claude) ModelArgs(id string) []string { return []string{"--model", id} }

@@ -49,6 +49,15 @@ type Config struct {
 	MemoryDir      string              `json:"memoryDir"`   // shared memory folder; "" = automatic (memory.go)
 	AutoInstall    bool                `json:"autoInstall"` // install a verified update when AIT closes
 	LastVersion    string              `json:"lastVersion"` // the version that last ran (for "what's new")
+	CrossAI        string              `json:"crossAI"`     // when every account is out: "switch" (default) | "ask" | "off"
+	AIOrder        []string            `json:"aiOrder"`     // order to try other AIs in
+}
+
+func (c Config) aiOrder() []string {
+	if len(c.AIOrder) > 0 {
+		return c.AIOrder
+	}
+	return order // registration order: Claude, ChatGPT, Gemini
 }
 
 func (c Config) autoUpdate() bool { return c.AutoUpdate == nil || *c.AutoUpdate }
@@ -143,6 +152,9 @@ func (s *Store) Config() Config {
 	}
 	if c.FontWeight <= 0 {
 		c.FontWeight = 500 // Chromium draws greyscale only; 400 reads spindly
+	}
+	if c.CrossAI == "" {
+		c.CrossAI = "switch"
 	}
 	if c.Access == "" {
 		c.Access = "everywhere"

@@ -98,7 +98,11 @@ func (c *codex) Models() []Model {
 			if name == "" {
 				name = m.Slug
 			}
-			out = append(out, Model{ID: m.Slug, Name: name, Desc: m.Description})
+			fam := name
+			if i := strings.LastIndex(name, "-"); i > 0 && !strings.ContainsAny(name[i+1:], "0123456789") {
+				fam = name[:i]
+			}
+			out = append(out, Model{ID: m.Slug, Name: name, Desc: m.Description, Family: fam})
 		}
 	}
 	return out
@@ -110,12 +114,14 @@ func (c *codex) ModelArgs(id string) []string { return []string{"-m", id} }
 // alone and the shared folder is reached through its instructions.
 func (c *codex) ShareMemory(home, cwd, shared string) {}
 
+// AccessArgs: "everywhere" is Codex's full-access sandbox mode. Listing
+// whole drives as writable roots instead was measured to stall Codex's
+// Windows sandbox (commands never ran). Approvals still apply.
 func (c *codex) AccessArgs(dirs []string) []string {
-	var out []string
-	for _, d := range dirs {
-		out = append(out, "--add-dir", d)
+	if len(dirs) == 0 {
+		return nil
 	}
-	return out
+	return []string{"--sandbox", "danger-full-access"}
 }
 
 // RulesArgs uses developer_instructions, which codex adds to its own. The

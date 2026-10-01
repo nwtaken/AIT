@@ -38,14 +38,18 @@ AIT finds them by itself and uses the accounts you are already signed in with.
 
 ## Features
 
-- **Native chat.** Streaming replies, rendered markdown, syntax-highlighted code with copy
-  buttons, and tool calls you can expand to see the diff or the output.
+- **Native chat** for Claude and ChatGPT. Streaming replies, rendered markdown,
+  syntax-highlighted code with copy buttons, and tool calls you can expand to see the diff
+  or the output.
 - **Approval cards.** When the AI wants to edit a file or run a command, you allow it once,
   always, or deny it. Or switch approvals off in Settings.
 - **Several accounts, one conversation.** Add accounts from the account menu. When one runs
   out, the conversation continues on the next, with its full history.
-- **Model switcher.** Claude (Fable, Opus, Sonnet, Haiku), your account's ChatGPT models, and
-  Gemini, from one menu.
+- **Model picker.** Every version your AI offers (Opus 5.5, 5, 4.8 …, GPT-5.6 Sol, Luna …),
+  read from the installed tools, chosen per chat. Claude models can use a 1M-token context.
+- **One conversation across AIs.** When every account of one AI runs out, the conversation
+  continues on the next AI (Claude → ChatGPT → Gemini), which is handed the history so far.
+  Or have AIT ask first, or wait for the reset.
 - **Shared memory.** One memory folder every AI reads and adds to, so what one learns the
   others know.
 - **History.** Search and reopen any past conversation (Ctrl+Shift+H).

@@ -104,9 +104,11 @@ type Provider interface {
 
 // Model is one entry in the model switcher.
 type Model struct {
-	ID   string `json:"id"` // "" = the agent's own default
-	Name string `json:"name"`
-	Desc string `json:"desc"`
+	ID     string `json:"id"` // "" = the agent's own default
+	Name   string `json:"name"`
+	Desc   string `json:"desc"`
+	Family string `json:"family"` // groups versions in the switcher ("Opus")
+	Long   bool   `json:"long"`   // accepts a 1M-token context ("<id>[1m]")
 }
 
 // Launch describes one start of an agent process.
