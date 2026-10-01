@@ -34,7 +34,7 @@ sha256sum dist/AIT-setup.exe | cut -d' ' -f1 > dist/AIT-setup.exe.sha256
 echo "sha256: $(cat dist/AIT-setup.exe.sha256)"
 
 git add wails.json
-git commit -m "Release v$V"
+git diff --cached --quiet || git commit -m "Release v$V"
 git tag -a "v$V" -m "AIT $V"
 git push origin HEAD "v$V"
 gh release create "v$V" dist/AIT-setup.exe dist/AIT-setup.exe.sha256 --title "AIT $V" --notes "$NOTES"
