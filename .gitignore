@@ -1,0 +1,6 @@
+build/bin/
+frontend/wailsjs/
+baton.exe
+build/windows/installer/tmp/
+dist/
+/*.exe

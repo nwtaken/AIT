@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AIT</title>
+<link rel="stylesheet" href="vendor/xterm.css">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="chat.css">
+<link rel="stylesheet" href="term.css">
+</head>
+<body>
+<header id="bar">
+  <div id="tabs" role="tablist"></div>
+  <button id="new" class="tool" title="New tab (Ctrl+Shift+T)"><span class="mdl">&#xE710;</span></button>
+  <button id="more" class="tool narrow" title="Open a tab"><span class="mdl small">&#xE70D;</span></button>
+  <div id="drag"></div>
+  <button id="update" class="upd" hidden><span class="mdl">&#xE896;</span><span class="upd-t">Update</span></button>
+  <button id="pin" class="tool"><span class="mdl">&#xE718;</span></button>
+  <button id="history" class="tool" title="History — past chats (Ctrl+Shift+H)"><span class="mdl">&#xE81C;</span></button>
+  <button id="attach" class="tool" hidden title="Attach files (Ctrl+Shift+O) — or paste / drop them anywhere"><span class="mdl">&#xE723;</span></button>
+  <button id="acct" hidden>
+    <span class="dot"></span><span class="name"></span><span class="mdl small">&#xE70D;</span>
+  </button>
+  <div class="caption">
+    <button id="min" title="Minimize"><span class="mdl">&#xE921;</span></button>
+    <button id="max" title="Maximize"><span class="mdl">&#xE922;</span></button>
+    <button id="close" title="Close"><span class="mdl">&#xE8BB;</span></button>
+  </div>
+</header>
+<main id="panes"></main>
+
+<div id="menu" hidden></div>
+
+<div id="scrim" hidden></div>
+<section id="historyPanel" class="sheet" hidden aria-label="History">
+  <div class="search">
+    <span class="mdl">&#xE721;</span>
+    <input id="hq" type="text" placeholder="Search past chats" spellcheck="false" autocomplete="off">
+    <span class="hint">Enter to open · Esc to close</span>
+  </div>
+  <div id="hlist" class="hlist"></div>
+</section>
+
+<section id="settings" class="sheet" hidden aria-label="Settings"></section>
+<div id="setup" hidden></div>
+
+<section id="confirm" class="sheet dialog" hidden role="alertdialog" aria-labelledby="ctitle">
+  <h2 id="ctitle"></h2>
+  <p id="cbody"></p>
+  <div class="actions">
+    <button id="cno" class="btn">Cancel</button>
+    <button id="cyes" class="btn primary">Close</button>
+  </div>
+</section>
+
+<div id="dropzone" hidden><div><span class="mdl">&#xE898;</span><b>Drop to attach</b><span id="dropto"></span></div></div>
+<div id="toasts"></div>
+
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
+<script src="vendor/addon-webgl.js"></script>
+<script src="vendor/addon-web-links.js"></script>
+<script src="vendor/addon-unicode11.js"></script>
+<script src="vendor/marked.js"></script>
+<script src="vendor/highlight.js"></script>
+<script src="app.js"></script>
+<script src="chat.js"></script>
+<script src="settings.js"></script>
+<script src="setup.js"></script>
+</body>
+</html>

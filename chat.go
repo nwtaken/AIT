@@ -1,0 +1,391 @@
+package main
+
+import (
+	"bufio"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+)
+
+// Native chat. Instead of showing an agent's own text UI in a terminal, AIT
+// runs it in its machine-readable streaming mode and draws the conversation
+// itself. A provider opts in by implementing ChatProvider; one that doesn't
+// keeps the terminal view, so every agent works either way.
+//
+// The page only ever sees normalised events (Ev), whatever the agent:
+//
+//	init    session, model, commands          the agent is up
+//	status  s                                 "requesting" while waiting on the model
+//	msg     id, ctx                           an assistant message begins (ctx = context tokens)
+//	start   i, type, id?, name?               content block i begins: text | thinking | tool
+//	delta   i, text                           streamed text for block i
+//	tool    id, name, input                   a tool call, complete
+//	result  id, ok, text                      that tool's result
+//	ask     req, tool, desc, input            permission request; answer with ChatAnswer
+//	done    ms, cost, error?                  the turn ended
+//	quota   five, fiveReset, week, weekReset  usage windows, 0..1
+//	user    text                              a user message (history and replays)
+//	text    text                              a whole assistant text block (history)
+//	error   text
+type Ev map[string]any
+
+type ChatProvider interface {
+	// ChatArgs is the command line (after the binary) for streaming mode.
+	// perm is AIT's permission setting: "ask" | "edits" | "never".
+	ChatArgs(l Launch, perm string) []string
+	// ChatUser encodes one user message for the agent's stdin.
+	ChatUser(text string, images []Image) []byte
+	// ChatDecode turns one line of the agent's stdout into events.
+	ChatDecode(line []byte, st *ChatState) []Ev
+	// ChatReply answers a permission request: decision is allow | always | deny.
+	ChatReply(req, decision string, ask json.RawMessage) []byte
+	// ChatControl encodes a control message: "interrupt", or "model:<id>".
+	ChatControl(what string) []byte
+	// ChatHistory replays a stored transcript as events.
+	ChatHistory(path string) []Ev
+}
+
+// ChatState is per-process decoding state a provider may keep.
+type ChatState struct {
+	Asks map[string]json.RawMessage // pending permission requests by id
+	seq  int
+}
+
+type Image struct {
+	Media string // image/png …
+	Data  []byte
+}
+
+// chatProc is one agent process in streaming mode.
+type chatProc struct {
+	cmd   *exec.Cmd
+	stdin io.WriteCloser
+	kill  func()
+	wmu   sync.Mutex
+}
+
+func (c *chatProc) send(b []byte) error {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+	_, err := c.stdin.Write(b)
+	return err
+}
+
+// startChat launches the agent in streaming mode. Caller holds t.mu.
+func (a *App) startChat(t *Tab, cp ChatProvider, cmdline []string, env []string) error {
+	cmd := exec.Command(cmdline[0], cmdline[1:]...)
+	cmd.Dir = t.cwd
+	cmd.Env = env
+	hideConsole(cmd)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	var stderr strings.Builder
+	cmd.Stderr = &limitedWriter{w: &stderr, n: 8 << 10}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	cp2 := &chatProc{cmd: cmd, stdin: stdin, kill: killTree(cmd.Process.Pid)}
+	t.chat = cp2
+	gen := t.gen.Load()
+	go a.chatPump(t, cp, cp2, stdout, &stderr, gen)
+	return nil
+}
+
+func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, stdout io.Reader, stderr *strings.Builder, gen int64) {
+	st := &ChatState{Asks: map[string]json.RawMessage{}}
+	t.mu.Lock()
+	t.chatState = st
+	t.mu.Unlock()
+	sc := bufio.NewScanner(stdout)
+	sc.Buffer(make([]byte, 1<<20), 64<<20) // agent turns get large
+	for sc.Scan() {
+		if t.gen.Load() != gen {
+			continue // replaced; drain quietly
+		}
+		evs := cp.ChatDecode(sc.Bytes(), st)
+		if len(evs) == 0 {
+			continue
+		}
+		for _, e := range evs {
+			switch e["k"] {
+			case "quota":
+				a.store.SetQuota(t.acctID(), e)
+			case "init":
+				if id, _ := e["session"].(string); id != "" {
+					t.mu.Lock()
+					acct, _ := a.store.Account(t.acct)
+					if p := t.agent.SessionFile(a.store.Home(acct), t.cwd, id); p != "" {
+						a.claim(t, p)
+					}
+					t.mu.Unlock()
+				}
+			}
+		}
+		a.chatOut(t, evs)
+	}
+	proc.cmd.Wait()
+	if t.gen.Load() == gen {
+		msg := strings.TrimSpace(stderr.String())
+		a.chatOut(t, []Ev{{"k": "exit", "text": lastLines(msg, 6)}})
+		if !t.adopted.Load() {
+			a.standbyExited(t)
+		}
+	}
+}
+
+// chatOut sends events to the page, or keeps them while the tab is a standby.
+func (a *App) chatOut(t *Tab, evs []Ev) {
+	t.backMu.Lock()
+	defer t.backMu.Unlock()
+	if t.adopted.Load() {
+		a.emit("chat:ev", t.id, evs)
+		return
+	}
+	t.evBacklog = append(t.evBacklog, evs...)
+}
+
+func (t *Tab) acctID() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.acct
+}
+
+// ---- bindings ---------------------------------------------------------------
+
+// ChatSend sends a message. files are paths: images go as images, anything
+// else is named in the text so the agent can open it.
+func (a *App) ChatSend(id int, text string, files []string) error {
+	t := a.tab(id)
+	if t == nil {
+		return fmt.Errorf("no tab")
+	}
+	t.mu.Lock()
+	proc, cp := t.chat, chatOf(t.agent)
+	t.mu.Unlock()
+	if proc == nil || cp == nil {
+		return fmt.Errorf("the agent is not running")
+	}
+	var imgs []Image
+	var others []string
+	for _, f := range files {
+		if m := imageMedia(f); m != "" {
+			if b, err := os.ReadFile(f); err == nil && len(b) < 5<<20 {
+				imgs = append(imgs, Image{Media: m, Data: b})
+				continue
+			}
+		}
+		others = append(others, f)
+	}
+	for _, f := range others {
+		text += "\n" + quotePath(f)
+	}
+	a.store.Trust(t.cwd) // sending in a folder is consent to work in it
+	return proc.send(cp.ChatUser(strings.TrimSpace(text), imgs))
+}
+
+// ChatAnswer answers a permission card: allow | always | deny.
+func (a *App) ChatAnswer(id int, req, decision string) error {
+	t := a.tab(id)
+	if t == nil {
+		return fmt.Errorf("no tab")
+	}
+	t.mu.Lock()
+	proc, cp, st := t.chat, chatOf(t.agent), t.chatState
+	t.mu.Unlock()
+	if proc == nil || cp == nil || st == nil {
+		return fmt.Errorf("the agent is not running")
+	}
+	ask := st.Asks[req]
+	delete(st.Asks, req)
+	return proc.send(cp.ChatReply(req, decision, ask))
+}
+
+// ChatControl: "interrupt", or "model:<id>".
+func (a *App) ChatControl(id int, what string) error {
+	t := a.tab(id)
+	if t == nil {
+		return fmt.Errorf("no tab")
+	}
+	t.mu.Lock()
+	proc, cp := t.chat, chatOf(t.agent)
+	t.mu.Unlock()
+	if proc == nil || cp == nil {
+		return fmt.Errorf("the agent is not running")
+	}
+	if m, ok := strings.CutPrefix(what, "model:"); ok {
+		t.mu.Lock()
+		t.model = m // a handoff relaunches on the same model
+		t.mu.Unlock()
+	}
+	return proc.send(cp.ChatControl(what))
+}
+
+// ChatHistory replays the tab's conversation so far (after a resume or an
+// account switch the page shows it again from the transcript).
+func (a *App) ChatHistory(id int) []Ev {
+	t := a.tab(id)
+	if t == nil {
+		return []Ev{}
+	}
+	t.mu.Lock()
+	cp, path := chatOf(t.agent), t.session
+	t.mu.Unlock()
+	if cp == nil || path == "" || !fileExists(path) {
+		return []Ev{}
+	}
+	return cp.ChatHistory(path)
+}
+
+// TrustFolder records that the user lets agents work in this tab's folder.
+func (a *App) TrustFolder(id int) {
+	if t := a.tab(id); t != nil {
+		a.store.Trust(t.cwd)
+	}
+}
+
+// ImageData returns a small image as a data URL, for attachment previews.
+func (a *App) ImageData(path string) string {
+	m := imageMedia(path)
+	if m == "" {
+		return ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) > 8<<20 {
+		return ""
+	}
+	return "data:" + m + ";base64," + base64.StdEncoding.EncodeToString(b)
+}
+
+// ChatNew starts a fresh conversation in the same tab (/clear).
+func (a *App) ChatNew(id int) error {
+	t := a.tab(id)
+	if t == nil {
+		return fmt.Errorf("no tab")
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	acct, ok := a.store.Account(t.acct)
+	if !ok {
+		return fmt.Errorf("no account")
+	}
+	t.session = ""
+	return a.relaunch(t, acct, "")
+}
+
+// ChatFolder moves the tab to another working folder, starting fresh there.
+func (a *App) ChatFolder(id int) (string, error) {
+	t := a.tab(id)
+	if t == nil {
+		return "", fmt.Errorf("no tab")
+	}
+	dir, err := pickFolder(a.ctx, t.cwd)
+	if err != nil || dir == "" {
+		return "", err
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	acct, ok := a.store.Account(t.acct)
+	if !ok {
+		return "", fmt.Errorf("no account")
+	}
+	t.cwd, t.session, t.trusted = dir, "", a.store.Trusted(dir)
+	return maskUser(dir), a.relaunch(t, acct, "")
+}
+
+// ---- helpers --------------------------------------------------------------------
+
+func chatOf(p Provider) ChatProvider {
+	cp, _ := p.(ChatProvider)
+	return cp
+}
+
+func imageMedia(p string) string {
+	switch strings.ToLower(filepath.Ext(p)) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	}
+	return ""
+}
+
+func quotePath(p string) string {
+	if strings.ContainsAny(p, " &()") {
+		return `"` + p + `"`
+	}
+	return p
+}
+
+func lastLines(s string, n int) string {
+	l := strings.Split(s, "\n")
+	if len(l) > n {
+		l = l[len(l)-n:]
+	}
+	return strings.Join(l, "\n")
+}
+
+type limitedWriter struct {
+	w io.Writer
+	n int
+}
+
+func (l *limitedWriter) Write(b []byte) (int, error) {
+	if l.n <= 0 {
+		return len(b), nil
+	}
+	k := min(len(b), l.n)
+	l.n -= k
+	l.w.Write(b[:k])
+	return len(b), nil
+}
+
+// ---- quota (per account, from the agent's own usage reports) -----------------
+
+type Quota struct {
+	Five      float64 `json:"five"`
+	FiveReset int64   `json:"fiveReset"`
+	Week      float64 `json:"week"`
+	WeekReset int64   `json:"weekReset"`
+	At        int64   `json:"at"`
+}
+
+func (s *Store) SetQuota(id string, e Ev) {
+	q := Quota{At: time.Now().Unix()}
+	q.Five, _ = e["five"].(float64)
+	q.Week, _ = e["week"].(float64)
+	q.FiveReset, _ = e["fiveReset"].(int64)
+	q.WeekReset, _ = e["weekReset"].(int64)
+	s.mu.Lock()
+	if s.quota == nil {
+		s.quota = map[string]Quota{}
+	}
+	s.quota[id] = q
+	s.mu.Unlock()
+}
+
+func (s *Store) Quota(id string) (Quota, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	q, ok := s.quota[id]
+	if ok && q.FiveReset > 0 && q.FiveReset < time.Now().Unix() {
+		q.Five = 0 // that window has reset since the reading
+	}
+	return q, ok
+}
