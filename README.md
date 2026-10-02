@@ -62,6 +62,9 @@ presets to start from.
   Or have AIT ask first, or wait for the reset.
 - **Shared memory.** One memory folder every AI reads and adds to, so what one learns the
   others know.
+- **Tray.** AIT lives in the tray too: click the icon for a small panel with what the AI is doing,
+  its latest reply, usage, and a box to type to it. Hide AIT to the tray and the AI keeps working;
+  a Windows notification tells you when it finishes or needs you.
 - **History.** Search and reopen any past conversation (Ctrl+Shift+H).
 - **MCP servers.** The plug button next to the model shows the AI's own MCP servers and their
   status, with a switch for each; what you switch off stays off in every chat of that AI.
