@@ -73,8 +73,20 @@ Function .onInstSuccess
     ${EndIf}
 FunctionEnd
 
-# A running copy would lock the files being replaced.
+# A running copy would lock the files being replaced. AIT's updater has
+# already asked it to quit, so first give it up to 5 s to close by itself:
+# a forced exit leaves its icon behind in the tray.
 !macro closeAIT
+    StrCpy $1 0
+    ${Do}
+        FindWindow $0 "AITMainWindow"
+        ${If} $0 == 0
+        ${OrIf} $1 >= 25
+            ${Break}
+        ${EndIf}
+        IntOp $1 $1 + 1
+        Sleep 200
+    ${Loop}
     nsExec::Exec 'taskkill /IM "${PRODUCT_EXECUTABLE}" /F'
     Pop $0
     Sleep 300

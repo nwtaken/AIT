@@ -5,6 +5,7 @@ import (
 	"os"
 	goruntime "runtime"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/energye/systray"
@@ -68,6 +69,19 @@ func mainWindow() uintptr {
 	}
 }
 
+// trayGone closes once the icon has been removed from the tray.
+var trayGone = make(chan struct{})
+
+// stopTray removes the icon before AIT exits; an exit that beats it leaves a
+// dead icon in the tray until the mouse passes over it.
+func stopTray() {
+	systray.Quit()
+	select {
+	case <-trayGone:
+	case <-time.After(2 * time.Second):
+	}
+}
+
 func (a *App) startTray() {
 	go func() {
 		goruntime.LockOSThread()
@@ -77,7 +91,7 @@ func (a *App) startTray() {
 			// Either button opens the panel, as tray widgets do.
 			systray.SetOnClick(func(systray.IMenu) { a.TrayPanel() })
 			systray.SetOnRClick(func(systray.IMenu) { a.TrayPanel() })
-		}, nil)
+		}, func() { close(trayGone) })
 	}()
 }
 

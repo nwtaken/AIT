@@ -1022,7 +1022,7 @@ function renderMini() {
   const q = c?.quota, rows = [];
   if (q?.five !== undefined) rows.push(["5-hour limit", q.five, q.fiveReset ? "resets in " + untilText(q.fiveReset) : ""]);
   if (q?.week !== undefined) rows.push(["Weekly limit", q.week, q.weekReset ? "resets " + dayText(q.weekReset) : ""]);
-  if (c?.ctx && c.window) rows.push(["Context", c.ctx / c.window, fmtNum(c.ctx) + " / " + fmtNum(c.window)]);
+  if (c?.ctx && c.window) rows.push(["Context", c.ctx / c.window, fmtNum(c.ctx) + " / " + fmtNum(c.window) + (c.bytes ? " · " + fmtBytes(c.bytes) + " full" : "")]);
   const html = (rows.length ? '<div class="sep"></div>' : "") + rows.map(([l, f, note]) =>
     `<div class="mi mn-m"><span class="label">${l}<span class="sub">${esc(note)}</span></span>${meter(f)}<span class="chip">${pct(f)}</span></div>`).join("");
   const box = m.querySelector(".mn-meters");

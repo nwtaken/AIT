@@ -94,6 +94,9 @@ func (a *App) crossOver(t *Tab, to Provider, acct Account, reason string) error 
 	if err != nil {
 		return err
 	}
+	if info, err := os.Stat(t.session); err == nil {
+		t.priorBytes += info.Size()
+	}
 	t.agent, t.profile = to, to.ID()
 	t.session, t.model, t.effort = "", "", ""
 	t.handover = fmt.Sprintf(

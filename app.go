@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -36,6 +35,7 @@ type Tab struct {
 	closed     bool
 	acct       string    // the account in use
 	session    string    // transcript path being watched
+	priorBytes int64     // transcripts of earlier AIs in this conversation (crossai.go)
 	launchedAt time.Time //
 	trusted    bool      // the user already trusted cwd in this tab
 	model      string    // model chosen in this tab ("" = default); survives handoffs
@@ -133,7 +133,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 func (a *App) shutdown(ctx context.Context) {
 	a.killStandby()
 	a.installOnExit()
-	systray.Quit()
+	stopTray()
 	// Lock order is always t.mu then a.mu, so collect first.
 	a.mu.Lock()
 	var tabs []*Tab
@@ -662,6 +662,7 @@ func (a *App) relaunch(t *Tab, to Account, prompt string) error {
 // usage-limit or signed-out error. One watcher per process generation.
 func (a *App) watch(t *Tab, gen int64) {
 	offsets := map[string]int64{}
+	var lastSize int64
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for range tick.C {
@@ -672,7 +673,7 @@ func (a *App) watch(t *Tab, gen int64) {
 		}
 		acct, _ := a.store.Account(t.acct)
 		home := a.store.Home(acct)
-		since, cur, native, sid := t.launchedAt, t.session, t.native, t.sessionID
+		since, cur, native, sid, prior := t.launchedAt, t.session, t.native, t.sessionID, t.priorBytes
 		t.mu.Unlock()
 
 		// A native chat reports its own id, so follow exactly that transcript
@@ -712,6 +713,14 @@ func (a *App) watch(t *Tab, gen int64) {
 		if !t.rememberedTrust && cur != "" && fileExists(cur) {
 			t.rememberedTrust = true
 			a.store.Trust(t.cwd)
+		}
+
+		if native {
+			// The whole conversation on disk, shown next to the token context.
+			if info, err := os.Stat(cur); err == nil && info.Size()+prior != lastSize {
+				lastSize = info.Size() + prior
+				a.chatOut(t, []Ev{{"k": "size", "bytes": lastSize}})
+			}
 		}
 
 		hit, off := t.agent.Scan(cur, offsets[cur], since)

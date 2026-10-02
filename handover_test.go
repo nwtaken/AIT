@@ -351,6 +351,9 @@ func TestSwitchMidTurnContinues(t *testing.T) {
 		t.Fatal("no init")
 	}
 	writeTranscript()
+	if !wait(3*time.Second, func(e Ev) bool { b, _ := e["bytes"].(int64); return e["k"] == "size" && b > 0 }) {
+		t.Fatal("the conversation size was not reported")
+	}
 	app.ChatSend(1, "hang", nil)
 	if !wait(5*time.Second, func(e Ev) bool { return e["k"] == "msg" }) {
 		t.Fatal("turn did not start")

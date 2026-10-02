@@ -46,7 +46,7 @@ function createChat(tab) {
         <button class="cbtn c-send" title="Send (Enter)"><span class="mdl">&#xE724;</span></button>
       </div>
       <div class="statusline">
-        <span class="sl-seg sl-use"></span><span class="sl-seg sl-week"></span><span class="sl-seg sl-ctx"></span><span class="sl-seg sl-turn"></span>
+        <span class="sl-seg sl-use"></span><span class="sl-seg sl-week"></span><span class="sl-seg sl-ctx"></span><span class="sl-seg sl-full"></span><span class="sl-seg sl-turn"></span>
         <button class="sl-folder" title="Change folder"></button>
       </div>
     </div>`;
@@ -258,6 +258,10 @@ function chatEvents(tab, evs, live = true) {
       case "ctx":
         c.ctx = e.ctx;
         if (e.window) c.window = e.window;
+        renderStatus(tab);
+        break;
+      case "size":
+        c.bytes = e.bytes;
         renderStatus(tab);
         break;
       case "user":
@@ -714,6 +718,7 @@ function chatProvider(tab, id, name, fromName, reason) {
   tab.profile = id;
   tab.el.querySelector(".icon").innerHTML = icon(id);
   c.commands = []; c.effort = "";
+  c.ctx = 0; c.window = 0; // the new AI reads the conversation afresh
   c.ta.placeholder = `Message ${name}   ·   / for commands`;
   chatDivider(tab, `↻ Continued on ${name} — ${fromName} ${reason}`);
   setBusy(tab, true);
@@ -1119,7 +1124,9 @@ function renderStatus(tab) {
   seg(".sl-week", q?.week !== undefined ? `<b>week</b><span>${pct(q.week)}</span>` : "",
     q?.week !== undefined ? `${pct(q.week)} of the weekly limit used${q.weekReset ? ", resets " + dayText(q.weekReset) : ""}` : "");
   seg(".sl-ctx", c.ctx ? `<b>ctx</b>${c.window ? meter(c.ctx / c.window, 0.8) : ""}<span>${fmtNum(c.ctx)}${c.window ? " / " + fmtNum(c.window) : ""}</span>` : "",
-    c.ctx ? `Context in use: ${c.ctx.toLocaleString()} tokens${c.window ? ` of ${c.window.toLocaleString()} (${pct(c.ctx / c.window)})` : ""}` : "");
+    c.ctx ? `Token context: ${c.ctx.toLocaleString()} tokens${c.window ? ` of ${c.window.toLocaleString()} (${pct(c.ctx / c.window)}); when it fills, the AI compacts the conversation` : ""}` : "");
+  seg(".sl-full", c.bytes ? `<b>full</b><span>${fmtBytes(c.bytes)}</span>` : "",
+    c.bytes ? "The whole conversation on disk: every message and tool output, earlier AIs included. Only the token context counts toward the limit." : "");
   seg(".sl-turn", c.lastMs ? `<b>last</b><span>${secsText(c.lastMs)}</span>` : "", c.lastMs ? "How long the last reply took" : "");
   r.querySelector(".sl-folder").textContent = c.folder || "";
 }
@@ -1164,4 +1171,10 @@ function shortPath(p, folder) {
 function lines(s) { return s ? String(s).split("\n") : []; }
 function baseName(p) { return String(p).split(/[\\/]/).pop(); }
 function fmtSecs(s) { return s < 60 ? `${s.toFixed(s < 10 ? 1 : 0)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`; }
-function fmtNum(n) { return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n); }
+function fmtNum(n) { return n >= 1e6 ? +(n / 1e6).toFixed(2) + "M" : n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n); }
+function fmtBytes(n) {
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(n >= 100 ? 0 : 1) : n) + " " + u[i];
+}
