@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/banner.png" alt="AIT — the AI terminal for Windows" width="100%"></p>
 
 <p align="center">
-  <a href="https://github.com/namewastaken951-dotcom/AIT/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/namewastaken951-dotcom/AIT?style=flat-square&color=d97757"></a>
-  <a href="https://github.com/namewastaken951-dotcom/AIT/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/namewastaken951-dotcom/AIT/total?style=flat-square&color=3b3b3b"></a>
+  <a href="https://github.com/nwtaken/AIT/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/nwtaken/AIT?style=flat-square&color=d97757"></a>
+  <a href="https://github.com/nwtaken/AIT/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/nwtaken/AIT/total?style=flat-square&color=3b3b3b"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-3b3b3b?style=flat-square">
   <img alt="Built with Go" src="https://img.shields.io/badge/Go-Wails-3b3b3b?style=flat-square">
 </p>
@@ -16,7 +16,7 @@ reaches its usage limit, AIT moves the same conversation to the next one and car
 
 ## Download
 
-**[Download AIT for Windows](https://github.com/namewastaken951-dotcom/AIT/releases/latest/download/AIT-setup.exe)**,
+**[Download AIT for Windows](https://github.com/nwtaken/AIT/releases/latest/download/AIT-setup.exe)**,
 then run the installer. It installs for your user only, so it doesn't need administrator rights.
 
 AIT updates itself: when a new version is out, an **Update** button appears in the title bar.

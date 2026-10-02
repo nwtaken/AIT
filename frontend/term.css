@@ -127,14 +127,10 @@ body:not(.desk) .statusline .sl-sep { display: none; }
 body:not(.desk) .statusline > span, body:not(.desk) .statusline > button {
   display: inline-flex; align-items: center; height: 20px; padding: 0 14px 0 14px; margin-right: -6px;
   clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%, 8px 50%); }
-body:not(.desk) .statusline > :first-child { clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%); padding-left: 10px; border-radius: 2px 0 0 2px; }
-body:not(.desk) .sl-model { background: var(--accent); color: var(--bg); font-weight: 700; }
-body:not(.desk) .sl-model:hover { color: var(--bg); filter: brightness(1.1); }
-body:not(.desk) .sl-acct { background: color-mix(in srgb, var(--text) 14%, var(--bg)); color: var(--text); }
+body:not(.desk) .statusline > :first-child, body:not(.desk) .sl-ctx:empty ~ .sl-folder { clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%); padding-left: 10px; border-radius: 2px 0 0 2px; }
 body:not(.desk) .sl-ctx { background: color-mix(in srgb, var(--text) 8%, var(--bg)); color: var(--muted); }
 body:not(.desk) .sl-folder { background: color-mix(in srgb, var(--text) 4%, var(--bg)); color: var(--muted); }
 body:not(.desk) .statusline > span:empty { display: none; }
-body:not(.desk) .sl-bar { background: color-mix(in srgb, var(--bg) 60%, transparent); }
 
 /* update button in the title bar */
 .upd { --wails-draggable: no-drag; align-self: center; margin: 4px 6px 0 0; height: 26px; padding: 0 10px; display: inline-flex; align-items: center; gap: 7px;

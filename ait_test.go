@@ -107,7 +107,7 @@ func fakeClaudeStream() {
 		w(`{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text"}}}`)
 		w(`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":` + string(q) + `}}}`)
 		w(`{"type":"stream_event","event":{"type":"content_block_stop","index":0}}`)
-		w(`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.4,"resetsAt":1790888400},"seven_day":{"utilization":0.2,"resetsAt":1791118800}}}}`)
+		w(`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.4,"resetsAt":4102444800},"seven_day":{"utilization":0.2,"resetsAt":4103049600}}}}`)
 		w(`{"type":"result","subtype":"success","is_error":false,"duration_ms":12,"total_cost_usd":0}`)
 	}
 }
@@ -555,13 +555,14 @@ func TestUpdaterVerifiesDownloads(t *testing.T) {
 	installer := []byte("pretend installer")
 	sum := sha256.Sum256(installer)
 	good := hex.EncodeToString(sum[:])
-	var checksum, assetHost string
+	var checksum, assetHost, srv0 string
+	repoName := UpdateRepo
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
-			fmt.Fprintf(w, `{"tag_name":"v9.9.9","body":"notes","assets":[
+			fmt.Fprintf(w, `{"tag_name":"v9.9.9","body":"notes","html_url":"%[3]s/%[2]s/releases/tag/v9.9.9","assets":[
 				{"name":"AIT-setup.exe","browser_download_url":"%[1]s/%[2]s/releases/download/v9.9.9/AIT-setup.exe","size":17},
-				{"name":"AIT-setup.exe.sha256","browser_download_url":"%[1]s/%[2]s/releases/download/v9.9.9/AIT-setup.exe.sha256"}]}`, assetHost, UpdateRepo)
+				{"name":"AIT-setup.exe.sha256","browser_download_url":"%[1]s/%[2]s/releases/download/v9.9.9/AIT-setup.exe.sha256"}]}`, assetHost, repoName, srv0)
 		case strings.HasSuffix(r.URL.Path, ".sha256"):
 			fmt.Fprint(w, checksum)
 		case strings.HasSuffix(r.URL.Path, ".exe"):
@@ -571,7 +572,7 @@ func TestUpdaterVerifiesDownloads(t *testing.T) {
 	defer srv.Close()
 	oldAPI, oldDL := apiBase, downloadBase
 	defer func() { apiBase, downloadBase = oldAPI, oldDL }()
-	apiBase, downloadBase, assetHost = srv.URL, srv.URL, srv.URL
+	apiBase, downloadBase, assetHost, srv0 = srv.URL, srv.URL, srv.URL, srv.URL
 
 	s, _ := newStoreAt(t.TempDir(), t.TempDir())
 	a := NewApp(s)
@@ -587,6 +588,13 @@ func TestUpdaterVerifiesDownloads(t *testing.T) {
 	if b, _ := os.ReadFile(path); string(b) != string(installer) {
 		t.Fatal("wrong file written")
 	}
+
+	a.prepared = ""
+	repoName = "renamed-owner/AIT" // the repository was renamed: still its own releases
+	if _, err := a.prepareUpdate(); err != nil {
+		t.Fatalf("download refused after a rename: %v", err)
+	}
+	repoName = UpdateRepo
 
 	a.prepared = ""
 	checksum = strings.Repeat("0", 64)

@@ -32,7 +32,12 @@ import (
 var Version = "1.0.0"
 
 // UpdateRepo is the GitHub repository releases are published to.
-const UpdateRepo = "namewastaken951-dotcom/AIT"
+const UpdateRepo = "nwtaken/AIT"
+
+// repoID is GitHub's permanent number for UpdateRepo. Asking by number keeps
+// updates working when the account or repository is renamed; downloads must
+// still come from that same repository's releases.
+const repoID = "1400644785"
 
 // The only addresses the updater talks to. Variables so tests can point
 // them at a local fake; nothing else ever changes them.
@@ -56,6 +61,7 @@ type UpdateInfo struct {
 	Ready     bool   `json:"ready"` // downloaded and verified; installs on close
 
 	installerURL, checksumURL string
+	repo                      string // owner/name the release lives in now
 }
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
@@ -84,7 +90,7 @@ func (a *App) startUpdateChecks() {
 // CheckUpdate asks GitHub for the latest release.
 func (a *App) CheckUpdate() (UpdateInfo, error) {
 	info := UpdateInfo{Current: Version}
-	req, _ := http.NewRequest("GET", apiBase+"/repos/"+UpdateRepo+"/releases/latest", nil)
+	req, _ := http.NewRequest("GET", apiBase+"/repositories/"+repoID+"/releases/latest", nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "AIT/"+Version)
 	resp, err := httpClient.Do(req)
@@ -99,6 +105,7 @@ func (a *App) CheckUpdate() (UpdateInfo, error) {
 		Tag    string `json:"tag_name"`
 		Body   string `json:"body"`
 		Draft  bool   `json:"draft"`
+		Page   string `json:"html_url"` // <downloadBase>/<owner>/<name>/releases/tag/<tag>
 		Assets []struct {
 			Name string `json:"name"`
 			URL  string `json:"browser_download_url"`
@@ -110,6 +117,11 @@ func (a *App) CheckUpdate() (UpdateInfo, error) {
 	}
 	info.Latest = strings.TrimPrefix(rel.Tag, "v")
 	info.Notes = rel.Body
+	if rest, ok := strings.CutPrefix(rel.Page, downloadBase+"/"); ok {
+		if i := strings.Index(rest, "/releases/"); i > 0 {
+			info.repo = rest[:i]
+		}
+	}
 	for _, as := range rel.Assets {
 		switch as.Name {
 		case installerAsset:
@@ -122,8 +134,6 @@ func (a *App) CheckUpdate() (UpdateInfo, error) {
 	return info, nil
 }
 
-// InstallUpdate downloads, verifies and runs the latest installer, then
-// quits so it can replace AIT. Only ever started by the user.
 // InstallUpdate downloads, verifies and runs the latest installer, then
 // quits so it can replace AIT. Only ever started by the user's click.
 func (a *App) InstallUpdate() error {
@@ -156,8 +166,8 @@ func (a *App) prepareUpdate() (string, error) {
 	if a.prepared != "" && a.preparedVer == u.Latest && fileExists(a.prepared) {
 		return a.prepared, nil
 	}
-	prefix := downloadBase + "/" + UpdateRepo + "/releases/download/"
-	if !strings.HasPrefix(u.installerURL, prefix) || !strings.HasPrefix(u.checksumURL, prefix) {
+	prefix := downloadBase + "/" + u.repo + "/releases/download/"
+	if u.repo == "" || !strings.HasPrefix(u.installerURL, prefix) || !strings.HasPrefix(u.checksumURL, prefix) {
 		return "", errors.New("the update is not from AIT's own releases; not installing it")
 	}
 	sum, err := fetch(u.checksumURL, 1<<10)
@@ -211,7 +221,7 @@ func (a *App) WhatsNew() UpdateInfo {
 		return UpdateInfo{} // first run, or a downgrade: nothing to announce
 	}
 	info := UpdateInfo{Current: Version, Latest: Version, Available: true}
-	req, _ := http.NewRequest("GET", apiBase+"/repos/"+UpdateRepo+"/releases/tags/v"+Version, nil)
+	req, _ := http.NewRequest("GET", apiBase+"/repositories/"+repoID+"/releases/tags/v"+Version, nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "AIT/"+Version)
 	if resp, err := httpClient.Do(req); err == nil {

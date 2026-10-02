@@ -238,11 +238,6 @@
 .statusline { display: flex; align-items: center; gap: 0; padding: 7px 4px 0; font-size: .82em; color: var(--faint); white-space: nowrap; overflow: hidden; }
 .sl-sep::before { content: "·"; margin: 0 9px; }
 .statusline > span:empty + .sl-sep, .statusline .sl-sep:last-of-type:has(+ :empty) { display: none; }
-.sl-model { color: var(--muted); cursor: pointer; } .sl-model:hover { color: var(--accent); }
-.sl-acct { display: inline-flex; align-items: center; gap: 7px; }
-.sl-bar { width: 54px; height: 4px; border-radius: 2px; background: var(--soft2); overflow: hidden; } .sl-bar[hidden] { display: none; }
-.sl-bar i { display: block; height: 100%; background: var(--ok); border-radius: 2px; transition: width .6s var(--ease), background .3s; }
-.sl-bar.hot i { background: var(--warn); }
 .sl-folder { font: inherit; color: var(--faint); cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
 .sl-folder:hover { color: var(--accent); }
 

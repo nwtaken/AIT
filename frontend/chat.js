@@ -45,8 +45,6 @@ function createChat(tab) {
         <button class="cbtn c-send" title="Send (Enter)"><span class="mdl">&#xE724;</span></button>
       </div>
       <div class="statusline">
-        <span class="sl-model"></span><span class="sl-sep"></span>
-        <span class="sl-acct"><span class="sl-name"></span><span class="sl-bar"><i></i></span><span class="sl-pct"></span></span><span class="sl-sep"></span>
         <span class="sl-ctx"></span><span class="sl-sep"></span>
         <button class="sl-folder" title="Change folder"></button>
       </div>
@@ -78,7 +76,6 @@ function createChat(tab) {
   root.querySelector(".c-attach").addEventListener("click", attach);
   root.querySelector(".sl-folder").addEventListener("click", () => changeFolder(tab));
   root.querySelector(".c-model").addEventListener("click", (e) => { e.stopPropagation(); $("#menu").hidden ? modelMenu(tab) : hideMenu(); });
-  root.querySelector(".sl-model").addEventListener("click", (e) => { e.stopPropagation(); modelMenu(tab); });
   root.querySelector(".tb-trust").addEventListener("click", () => trustFolder(tab));
   root.querySelector(".tb-change").addEventListener("click", () => changeFolder(tab));
   root.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -981,19 +978,7 @@ function renderStatus(tab) {
   const r = c.root;
   const known = (profile(tab.profile).models || []).find((m) => m.id && (m.id === c.model || m.id === (c.modelChoice || "").replace(/\[1m\]$/, "")));
   const live = (c.model && (profile(tab.profile).models || []).find((m) => m.id === c.model)?.name) || prettyModel(c.model) || (known && c.modelChoice ? c.modelLabel : "");
-  r.querySelector(".sl-model").textContent = live || profile(tab.profile).name;
   r.querySelector(".cm-name").textContent = live || c.modelLabel || "Default";
-  r.querySelector(".sl-name").textContent = tab.account || "";
-  const q = c.quota;
-  const bar = r.querySelector(".sl-bar");
-  if (q && q.five !== undefined) {
-    const pct = Math.round(q.five * 100);
-    bar.hidden = false;
-    bar.firstElementChild.style.width = Math.min(100, pct) + "%";
-    bar.classList.toggle("hot", pct >= 80);
-    r.querySelector(".sl-pct").textContent = `${pct}% of 5h`;
-    r.querySelector(".sl-acct").title = `5-hour window ${pct}% used · weekly ${Math.round((q.week || 0) * 100)}%`;
-  } else { bar.hidden = true; r.querySelector(".sl-pct").textContent = ""; }
   r.querySelector(".sl-ctx").textContent = c.ctx ? `${fmtNum(c.ctx)} context` : "";
   r.querySelector(".sl-folder").textContent = c.folder || "";
 }
