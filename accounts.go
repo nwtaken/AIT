@@ -122,6 +122,9 @@ func newStoreAt(root, home string) (*Store, error) {
 	if b, err := os.ReadFile(s.statePath()); err == nil {
 		json.Unmarshal(b, &s.state)
 	}
+	if b, err := os.ReadFile(s.quotaPath()); err == nil {
+		json.Unmarshal(b, &s.quota)
+	}
 	if !fileExists(s.configPath()) {
 		s.firstRun()
 	}

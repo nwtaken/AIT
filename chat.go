@@ -424,15 +424,23 @@ func (s *Store) SetQuota(id string, e Ev) {
 		s.quota = map[string]Quota{}
 	}
 	s.quota[id] = q
+	b, _ := json.MarshalIndent(s.quota, "", "  ")
 	s.mu.Unlock()
+	os.WriteFile(s.quotaPath(), b, 0o644) // so usage shows at once after a restart
 }
+
+func (s *Store) quotaPath() string { return filepath.Join(s.root, "usage.json") }
 
 func (s *Store) Quota(id string) (Quota, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	q, ok := s.quota[id]
-	if ok && q.FiveReset > 0 && q.FiveReset < time.Now().Unix() {
+	now := time.Now().Unix()
+	if ok && q.FiveReset > 0 && q.FiveReset < now {
 		q.Five = 0 // that window has reset since the reading
+	}
+	if ok && q.WeekReset > 0 && q.WeekReset < now {
+		q.Week = 0
 	}
 	return q, ok
 }

@@ -20,6 +20,7 @@ const GLYPH = {
   rules: '<span class="mdl">&#xE70F;</span>',
 };
 const icon = (id) => ICONS[id] || ICONS.agent;
+let APP_VERSION = "";
 
 // Colour themes: the terminal palette, plus the page's own colours come from
 // [data-theme] in style.css.
@@ -564,7 +565,15 @@ async function updateChrome() {
   btn.classList.toggle("out", cur.status === "signed out");
   const free = list.filter((a) => a.status === "ready").length;
   btn.title = `${cur.label} · ${free} of ${list.length} account${list.length === 1 ? "" : "s"} ready — AIT moves to the next one by itself when this one runs out`;
-  if (tab.native) { tab.account = cur.label; renderStatus(tab); }
+  if (tab.native) {
+    const c = tab.chat;
+    tab.account = cur.label;
+    // The usage line shows the account in use; its last reading until a fresh one arrives.
+    if (cur.hasQuota) c.quota = { five: cur.five, week: cur.week, fiveReset: cur.fiveReset, weekReset: cur.weekReset };
+    else if (c.quotaAcct !== cur.id) c.quota = null;
+    c.quotaAcct = cur.id;
+    renderStatus(tab);
+  }
 }
 
 function showMenu(anchor, items, alignRight, above) {
@@ -627,37 +636,44 @@ function profileMenu() {
 async function accountMenu() {
   const tab = tabs.get(active);
   if (!tab) return;
-  const name = profile(tab.profile).name;
   const list = await API().Accounts(tab.id);
-  const items = [{ header: `${name} accounts — the next one takes over automatically` }];
+  const items = [{ header: tab.native ? "Accounts — when one runs out, AIT moves down this list" : `${profile(tab.profile).name} accounts — the next one takes over automatically` }];
   for (const a of list) {
     const chip = a.status === "ready" ? (a.current ? "in use" : "ready") : a.detail || a.status;
     items.push({
       cls: a.current ? "current" : "",
-      html: `<span class="radio"></span><span class="label">${esc(a.label)}<span class="sub">${esc(a.email || "not signed in")}${a.hasQuota ? ` · 5h ${Math.round(a.five * 100)}% · week ${Math.round(a.week * 100)}%` : ""}</span>${a.hasQuota ? `<span class="qbar"><i style="width:${Math.min(100, Math.round(a.five * 100))}%"></i></span>` : ""}</span><span class="chip ${a.status === "ready" ? "ready" : a.status === "limited" ? "limited" : ""}">${esc(chip)}</span>`,
+      html: `<span class="radio"></span><span class="icon">${icon(a.provider)}</span><span class="label">${esc(a.label)}<span class="sub">${esc(a.email || (a.status === "signed out" ? "not signed in" : "signed in"))}${a.hasQuota ? ` · 5h ${Math.round(a.five * 100)}% · week ${Math.round(a.week * 100)}%` : ""}</span>${a.hasQuota ? `<span class="qbar"><i style="width:${Math.min(100, Math.round(a.five * 100))}%"></i></span>` : ""}</span><span class="chip ${a.status === "ready" ? "ready" : a.status === "limited" ? "limited" : ""}">${esc(chip)}</span>`,
       run: async () => {
         if (a.current) return;
-        if (a.status === "signed out") { signIn(tab, a.id, a.label, false); return; }
+        if (a.status === "signed out") { signIn(tab, a, false); return; }
         try { await API().Switch(tab.id, a.id); } catch (err) { toast(String(err)); }
       },
     });
   }
   items.push("-", {
-    html: `<span class="icon">${GLYPH.plus}</span><span class="label">Add ${esc(name)} account</span>`,
-    run: async () => {
-      const id = await API().AddAccount(tab.profile);
-      if (await API().CanSignIn(tab.profile)) {
-        const label = (await API().Accounts(tab.id)).find((a) => a.id === id)?.label || `New ${name} account`;
-        signIn(tab, id, label, true);
-        return;
-      }
-      await openTab(tab.profile, { account: id });
-      toast(`New ${name} account — sign in in this tab. It joins the rotation once you're in.`);
-    },
+    html: `<span class="icon">${GLYPH.plus}</span><span class="label">Add account</span>`,
+    run: () => addAccountMenu(tab),
   }, {
     html: `<span class="icon">${GLYPH.gear}</span><span class="label">Settings</span>`,
     run: openSettings,
   });
+  showMenu($("#acct"), items, true);
+}
+
+// "Add account": pick the AI first.
+function addAccountMenu(tab) {
+  const ais = ui.profiles.filter((p) => p.agent);
+  const items = [{ header: "Add an account for" }];
+  for (const p of ais) {
+    items.push({
+      cls: p.installed ? "" : "dim",
+      html: `<span class="icon">${icon(p.id)}</span><span class="label">${esc(p.name)}<span class="sub">${p.installed ? (p.chat ? "sign in through your browser" : "sign in in a new tab") : "not installed — click for how"}</span></span>`,
+      run: async () => {
+        if (!p.installed) { toast(`Install ${p.name} first, then restart AIT:  ${INSTALL_HINT[p.id] || ""}`, 7000); return; }
+        try { signIn(tab, await API().AddAccount(p.id), true); } catch (err) { toast(String(err)); }
+      },
+    });
+  }
   showMenu($("#acct"), items, true);
 }
 
@@ -667,9 +683,14 @@ async function accountMenu() {
 
 let signing = null;
 
-async function signIn(tab, id, label, fresh) {
+async function signIn(tab, acct, fresh) {
   hideMenu();
-  if (!(await API().CanSignIn(tab.profile))) { openTab(tab.profile, { account: id }); return; }
+  const { id, label, provider } = acct;
+  if (!(await API().CanSignIn(provider))) {
+    await openTab(provider, { account: id });
+    toast(`Sign in to ${label} in this tab. It joins your accounts once you're in.`);
+    return;
+  }
   signing = { tab, id, label, fresh, done: false };
   signState("wait");
   $("#scrim").hidden = false;
@@ -964,6 +985,7 @@ async function syncMaxIcon() {
 
 async function boot() {
   ui = await API().Init();
+  APP_VERSION = await API().AppVersion().catch(() => "");
   ui.base = ui.fontSize;
   ui.theme = ui.settings?.theme || ui.theme;
   if (ui.settings?.fontSize) ui.fontSize = ui.settings.fontSize;
@@ -1021,6 +1043,7 @@ async function boot() {
   RT().EventsOn("tab:notice", (id, text) => { toast(text); updateChrome(); });
   RT().EventsOn("app:close-requested", confirmQuit);
   initSignIn();
+  setInterval(() => { const t = tabs.get(active); if (t?.native) renderStatus(t); }, 30000); // keeps "resets in" current
   RT().EventsOn("update:available", showUpdate);
 
   $("#new").addEventListener("click", () => openTab(ui.defaultProfile));

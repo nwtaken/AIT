@@ -121,16 +121,16 @@ body:not(.desk) .c-model, body:not(.desk) .cbtn { border-radius: var(--r); }
 body:not(.desk) .c-model { font-family: var(--mono); font-weight: 600; }
 body:not(.desk) .palette { border-radius: var(--r); }
 
-/* powerline status bar */
-body:not(.desk) .statusline { gap: 0; padding: 6px 0 0; font-size: .8em; overflow: visible; }
-body:not(.desk) .statusline .sl-sep { display: none; }
-body:not(.desk) .statusline > span, body:not(.desk) .statusline > button {
-  display: inline-flex; align-items: center; height: 20px; padding: 0 14px 0 14px; margin-right: -6px;
-  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%, 8px 50%); }
-body:not(.desk) .statusline > :first-child, body:not(.desk) .sl-ctx:empty ~ .sl-folder { clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%); padding-left: 10px; border-radius: 2px 0 0 2px; }
-body:not(.desk) .sl-ctx { background: color-mix(in srgb, var(--text) 8%, var(--bg)); color: var(--muted); }
-body:not(.desk) .sl-folder { background: color-mix(in srgb, var(--text) 4%, var(--bg)); color: var(--muted); }
-body:not(.desk) .statusline > span:empty { display: none; }
+/* status line: a quiet tmux-style bar under the prompt */
+body:not(.desk) .statusline { padding: 7px 2px 0; font: .78em var(--mono); }
+body:not(.desk) .sl-seg:not(:empty) ~ .sl-seg:not(:empty)::before { content: "│"; margin: 0 10px 0 4px; color: var(--hair); }
+body:not(.desk) .sl-seg b { font-weight: 400; color: var(--faint); }
+body:not(.desk) .sl-seg span { color: var(--text); opacity: .78; }
+body:not(.desk) .sl-bar { width: 50px; height: 7px; border-radius: 0; background: color-mix(in srgb, var(--text) 9%, transparent);
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 4px, transparent 4px 5px); }
+body:not(.desk) .sl-bar i { border-radius: 0; box-shadow: 0 0 8px var(--accent); }
+body:not(.desk) .sl-bar.hot i { box-shadow: 0 0 8px var(--warn); }
+body:not(.desk) .sl-folder { margin-left: auto; padding-left: 16px; color: var(--faint); }
 
 /* update button in the title bar */
 .upd { --wails-draggable: no-drag; align-self: center; margin: 4px 6px 0 0; height: 26px; padding: 0 10px; display: inline-flex; align-items: center; gap: 7px;

@@ -304,10 +304,15 @@ func (c *codex) ChatDecode(line []byte, st *ChatState) []Ev {
 				Last struct {
 					Input int `json:"inputTokens"`
 				} `json:"last"`
+				Window int `json:"modelContextWindow"`
 			} `json:"tokenUsage"`
 		}
 		json.Unmarshal(m.Params, &p)
-		return []Ev{{"k": "ctx", "ctx": p.U.Last.Input}}
+		e := Ev{"k": "ctx", "ctx": p.U.Last.Input}
+		if p.U.Window > 0 {
+			e["window"] = p.U.Window
+		}
+		return []Ev{e}
 	case "turn/completed":
 		var p struct {
 			Turn struct {

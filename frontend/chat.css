@@ -236,8 +236,16 @@
 .c-send:hover { background: var(--accent); color: var(--bg); }
 
 .statusline { display: flex; align-items: center; gap: 0; padding: 7px 4px 0; font-size: .82em; color: var(--faint); white-space: nowrap; overflow: hidden; }
-.sl-sep::before { content: "·"; margin: 0 9px; }
-.statusline > span:empty + .sl-sep, .statusline .sl-sep:last-of-type:has(+ :empty) { display: none; }
+.sl-seg { display: inline-flex; align-items: center; gap: 6px; flex: none; animation: slIn .3s var(--ease); }
+.sl-seg:empty { display: none; }
+.sl-seg:not(:empty) ~ .sl-seg:not(:empty)::before, body.desk .sl-seg:not(:empty) ~ .sl-folder:not(:empty)::before { content: "·"; margin: 0 9px 0 3px; color: var(--faint); }
+.sl-seg b { font-weight: 500; color: var(--faint); }
+.sl-seg span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.sl-seg em { font-style: normal; color: var(--faint); }
+.sl-bar { display: inline-block; width: 46px; height: 4px; border-radius: 2px; background: var(--soft2); overflow: hidden; }
+.sl-bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width .6s var(--ease), background .3s; }
+.sl-bar.hot i { background: var(--warn); }
+@keyframes slIn { from { opacity: 0; } }
 .sl-folder { font: inherit; color: var(--faint); cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
 .sl-folder:hover { color: var(--accent); }
 

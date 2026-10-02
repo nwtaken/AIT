@@ -45,7 +45,7 @@ function createChat(tab) {
         <button class="cbtn c-send" title="Send (Enter)"><span class="mdl">&#xE724;</span></button>
       </div>
       <div class="statusline">
-        <span class="sl-ctx"></span><span class="sl-sep"></span>
+        <span class="sl-seg sl-use"></span><span class="sl-seg sl-week"></span><span class="sl-seg sl-ctx"></span><span class="sl-seg sl-turn"></span>
         <button class="sl-folder" title="Change folder"></button>
       </div>
     </div>`;
@@ -122,7 +122,7 @@ function showWelcome(tab) {
     <div class="w-term">
       <pre class="w-ascii">${AIT_ASCII}</pre>
       <div class="w-boot">
-        <div><span class="wb-k">ait</span><span class="wb-v">1.0 · ${esc(name)}</span></div>
+        <div><span class="wb-k">ait</span><span class="wb-v">${esc(APP_VERSION)} · ${esc(name)}</span></div>
         <div><span class="wb-k">account</span><span class="wb-v wb-acct">…</span></div>
         <div><span class="wb-k">model</span><span class="wb-v wb-model">starting…</span></div>
         <div><span class="wb-k">folder</span><span class="wb-v wb-folder">…</span></div>
@@ -216,13 +216,19 @@ function chatEvents(tab, evs, live = true) {
         askCard(tab, e);
         break;
       case "done":
+        if (e.window) c.window = e.window;
+        if (e.ms && live) c.lastMs = e.ms;
         finishTurn(tab, e);
+        renderStatus(tab);
         break;
       case "quota":
         c.quota = e;
+        renderStatus(tab);
         break;
       case "ctx":
         c.ctx = e.ctx;
+        if (e.window) c.window = e.window;
+        renderStatus(tab);
         break;
       case "user":
         hideWelcome(c, true);
@@ -1018,8 +1024,37 @@ function renderStatus(tab) {
   const live = (c.model && (profile(tab.profile).models || []).find((m) => m.id === c.model)?.name) || prettyModel(c.model) || (known && c.modelChoice ? c.modelLabel : "");
   const lv = c.effort && effortLevels(tab, (c.modelChoice || "").replace(/\[1m\]$/, "")).includes(c.effort) ? " · " + effortLabel(c.effort).toLowerCase() : "";
   r.querySelector(".cm-name").textContent = (live || c.modelLabel || "Default") + lv;
-  r.querySelector(".sl-ctx").textContent = c.ctx ? `${fmtNum(c.ctx)} context` : "";
+  const q = c.quota;
+  const seg = (cls, html, title) => {
+    const el = r.querySelector(cls);
+    if (el.innerHTML !== html) el.innerHTML = html;
+    el.title = title || "";
+  };
+  seg(".sl-use", q?.five !== undefined
+    ? `<b>5h</b>${meter(q.five)}<span>${pct(q.five)}</span>${q.fiveReset ? `<em>resets in ${untilText(q.fiveReset)}</em>` : ""}` : "",
+    q?.five !== undefined ? `${tab.account}: ${pct(q.five)} of the 5-hour usage window used${q.fiveReset ? ", resets at " + clockText(q.fiveReset) : ""}` : "");
+  seg(".sl-week", q?.week !== undefined ? `<b>week</b><span>${pct(q.week)}</span>` : "",
+    q?.week !== undefined ? `${pct(q.week)} of the weekly limit used${q.weekReset ? ", resets " + dayText(q.weekReset) : ""}` : "");
+  seg(".sl-ctx", c.ctx ? `<b>ctx</b>${c.window ? meter(c.ctx / c.window, 0.8) : ""}<span>${fmtNum(c.ctx)}${c.window ? " / " + fmtNum(c.window) : ""}</span>` : "",
+    c.ctx ? `Context in use: ${c.ctx.toLocaleString()} tokens${c.window ? ` of ${c.window.toLocaleString()} (${pct(c.ctx / c.window)})` : ""}` : "");
+  seg(".sl-turn", c.lastMs ? `<b>last</b><span>${secsText(c.lastMs)}</span>` : "", c.lastMs ? "How long the last reply took" : "");
   r.querySelector(".sl-folder").textContent = c.folder || "";
+}
+
+// A small usage bar; turns to the warning colour past `hot`.
+function meter(f, hot = 0.8) {
+  const w = Math.min(100, Math.max(3, Math.round(f * 100)));
+  return `<span class="sl-bar ${f >= hot ? "hot" : ""}"><i style="width:${w}%"></i></span>`;
+}
+const pct = (f) => Math.round(f * 100) + "%";
+const clockText = (s) => new Date(s * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const dayText = (s) => new Date(s * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+const secsText = (ms) => ms < 60000 ? (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + "s" : Math.floor(ms / 60000) + "m " + Math.round(ms % 60000 / 1000) + "s";
+function untilText(s) {
+  const m = Math.max(0, Math.round(s - Date.now() / 1000) / 60);
+  if (m < 60) return Math.ceil(m) + "m";
+  if (m < 1440) return Math.floor(m / 60) + "h " + Math.round(m % 60) + "m";
+  return Math.round(m / 1440) + "d";
 }
 
 // ---- small helpers -------------------------------------------------------------------------

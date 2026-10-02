@@ -43,10 +43,14 @@ AIT finds them by itself and uses the accounts you are already signed in with.
   or the output.
 - **Approval cards.** When the AI wants to edit a file or run a command, you allow it once,
   always, or deny it. Or switch approvals off in Settings.
-- **Several accounts, one conversation.** Add accounts from the account menu. When one runs
-  out, the conversation continues on the next, with its full history.
-- **Model picker.** Every version your AI offers (Opus 5.5, 5, 4.8 …, GPT-5.6 Sol, Luna …),
-  read from the installed tools, chosen per chat. Claude models can use a 1M-token context.
+- **Several accounts, one conversation.** Add Claude, ChatGPT and Gemini accounts from one
+  account menu; each signs in through your browser. When one runs out, the conversation
+  continues on the next, with its full history.
+- **Model and effort picker.** Every version your AI offers (Opus 5.5, 5, 4.8 …, GPT-5.6 Sol,
+  Luna …), read from the installed tools, chosen per chat, with the thinking effort each
+  model supports. Claude models can use a 1M-token context.
+- **Usage at a glance.** Under the prompt: how much of the 5-hour and weekly limits the
+  account has used and when it resets, how full the context is, and how long the last reply took.
 - **One conversation across AIs.** When every account of one AI runs out, the conversation
   continues on the next AI (Claude → ChatGPT → Gemini), which is handed the history so far.
   Or have AIT ask first, or wait for the reset.

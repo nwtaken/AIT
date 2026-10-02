@@ -384,32 +384,61 @@ func (t *Tab) stopChat() {
 }
 
 type AccountView struct {
-	ID      string `json:"id"`
-	Label   string `json:"label"`
-	Email   string `json:"email"`
-	Status  string `json:"status"` // ready | limited | signed out
-	Detail  string `json:"detail"`
-	Current bool   `json:"current"`
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Provider string `json:"provider"`
+	Email    string `json:"email"`
+	Status   string `json:"status"` // ready | limited | signed out
+	Detail   string `json:"detail"`
+	Current  bool   `json:"current"`
 	// Last usage reading (from the agent's own reports), when there is one.
 	Five      float64 `json:"five"`
 	Week      float64 `json:"week"`
 	FiveReset int64   `json:"fiveReset"`
+	WeekReset int64   `json:"weekReset"`
 	HasQuota  bool    `json:"hasQuota"`
 }
 
-// Accounts lists the accounts of the agent in tabID, marking the one in use.
+// Accounts lists the accounts tabID can move between, in the order AIT tries
+// them when one runs out: this AI's accounts first (they resume the exact
+// conversation), then, for chat tabs, the other installed AIs' in the
+// user's AI order (they continue from a handover). The one in use is marked.
 func (a *App) Accounts(tabID int) []AccountView {
 	t := a.tab(tabID)
 	if t == nil || t.agent == nil {
 		return []AccountView{}
 	}
 	t.mu.Lock()
-	cur := t.acct
+	cur, from, native := t.acct, t.profile, t.native
 	t.mu.Unlock()
+	ids := []string{from}
+	if native {
+		ord := a.store.Config().aiOrder()
+		start := 0
+		for i, id := range ord {
+			if id == from {
+				start = i + 1
+			}
+		}
+		for i := range ord {
+			id := ord[(start+i)%len(ord)]
+			if p := registry[id]; id != from && p != nil && p.Command() != nil && chatOf(p) != nil {
+				ids = append(ids, id)
+			}
+		}
+	}
 	now := time.Now()
 	out := []AccountView{}
-	for _, acct := range a.store.AccountsOf(t.profile) {
-		v := AccountView{ID: acct.ID, Label: acct.Label, Email: maskEmail(a.store.Email(acct)), Status: "ready", Current: acct.ID == cur}
+	for _, id := range ids {
+		out = append(out, a.accountViews(id, cur, now)...)
+	}
+	return out
+}
+
+func (a *App) accountViews(provider, cur string, now time.Time) []AccountView {
+	var out []AccountView
+	for _, acct := range a.store.AccountsOf(provider) {
+		v := AccountView{ID: acct.ID, Label: acct.Label, Provider: acct.provider().ID(), Email: maskEmail(a.store.Email(acct)), Status: "ready", Current: acct.ID == cur}
 		st := a.store.State(acct.ID)
 		switch {
 		case !a.store.signedIn(acct) || st.SignedOut:
@@ -418,14 +447,15 @@ func (a *App) Accounts(tabID int) []AccountView {
 			v.Status, v.Detail = "limited", "resets "+clock(time.Unix(st.LimitedUntil, 0))
 		}
 		if q, ok := a.store.Quota(acct.ID); ok {
-			v.Five, v.Week, v.FiveReset, v.HasQuota = q.Five, q.Week, q.FiveReset, true
+			v.Five, v.Week, v.FiveReset, v.WeekReset, v.HasQuota = q.Five, q.Week, q.FiveReset, q.WeekReset, true
 		}
 		out = append(out, v)
 	}
 	return out
 }
 
-// Switch moves an agent tab to another account by hand, keeping the conversation.
+// Switch moves an agent tab to another account by hand, keeping the
+// conversation; an account of another AI takes the chat over.
 func (a *App) Switch(tabID int, acctID string) error {
 	t := a.tab(tabID)
 	if t == nil || t.agent == nil {
@@ -441,14 +471,19 @@ func (a *App) Switch(tabID int, acctID string) error {
 	if t.closed {
 		return nil
 	}
+	if to := acct.provider(); to.ID() != t.profile {
+		if !t.native || chatOf(to) == nil {
+			return fmt.Errorf("this tab can't move to %s", to.Name())
+		}
+		return a.crossOver(t, to, acct, "was switched out by the user")
+	}
 	return a.relaunch(t, acct, "")
 }
 
-// AddAccount creates an empty account for an agent; the caller opens a tab
-// on it and the agent walks through its own sign-in.
-func (a *App) AddAccount(profile string) (string, error) {
+// AddAccount creates an empty account for an AI; the page then signs it in.
+func (a *App) AddAccount(profile string) (AccountView, error) {
 	acct, err := a.store.NewAccount(profile)
-	return acct.ID, err
+	return AccountView{ID: acct.ID, Label: acct.Label, Provider: acct.Provider}, err
 }
 
 func (a *App) OpenSettings() {
@@ -651,8 +686,8 @@ func (a *App) handoff(t *Tab, gen int64, hit *limitHit) {
 		if to, acct, ok := a.nextAI(t.profile); ok {
 			if mode == "ask" {
 				a.emit("tab:crossask", t.id, to.ID(), to.Name(), t.agent.Name())
-			} else if a.crossOver(t, to, acct, "ran out of usage on every account") == nil {
-				a.notice(t, fmt.Sprintf("Every %s account is at its limit — continued on %s.", from.Label, to.Name()))
+			} else if name := t.agent.Name(); a.crossOver(t, to, acct, "ran out of usage on every account") == nil {
+				a.notice(t, fmt.Sprintf("Every %s account is at its limit — continued on %s.", name, to.Name()))
 				return
 			}
 		}

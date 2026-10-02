@@ -133,6 +133,8 @@ input { font: inherit; color: inherit; }
 .mi:hover, .mi.sel { background: var(--flyout-hover); }
 .mi .icon { width: 16px; height: 16px; flex: none; display: grid; place-items: center; color: var(--muted); }
 .mi .icon svg { width: 15px; height: 15px; }
+.mi.dim { opacity: .55; }
+.mi .radio + .icon { margin-left: -4px; }
 .mi .label { flex: 1; min-width: 0; }
 .mi .key { color: var(--faint); font-size: 11px; padding-left: 18px; }
 .mi .sub { display: block; color: var(--muted); font-size: 11px; margin-top: 1px; }

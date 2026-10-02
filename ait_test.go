@@ -734,6 +734,11 @@ func TestCrossAIHandover(t *testing.T) {
 	gen := tab.gen.Load()
 	tab.mu.Unlock()
 
+	// The account menu lists every AI's accounts, in the order they take over.
+	if list := app.Accounts(1); len(list) != 2 || list[0].ID != "main" || !list[0].Current || list[1].Provider != "codex" {
+		t.Fatalf("account list %+v", list)
+	}
+
 	app.handoff(tab, gen, &limitHit{Text: "You've hit your session limit · resets 11pm", Until: time.Now().Add(time.Hour)})
 
 	select {

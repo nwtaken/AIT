@@ -131,6 +131,9 @@ type claudeLine struct {
 	Cost          float64           `json:"total_cost_usd"`
 	IsAPIErr      bool              `json:"isApiErrorMessage"`
 	ToolUseResult json.RawMessage   `json:"tool_use_result"`
+	ModelUsage    map[string]struct {
+		ContextWindow int `json:"contextWindow"`
+	} `json:"modelUsage"`
 }
 
 func (c *claude) ChatDecode(line []byte, st *ChatState) []Ev {
@@ -227,6 +230,14 @@ func (c *claude) ChatDecode(line []byte, st *ChatState) []Ev {
 		return []Ev{{"k": "quota", "status": r.Status, "five": f.Utilization, "fiveReset": f.ResetsAt, "week": w.Utilization, "weekReset": w.ResetsAt}}
 	case "result":
 		e := Ev{"k": "done", "ms": l.DurationMS, "cost": l.Cost}
+		// Sub-agents report too; the largest window is the main model's.
+		win := 0
+		for _, u := range l.ModelUsage {
+			win = max(win, u.ContextWindow)
+		}
+		if win > 0 {
+			e["window"] = win
+		}
 		if l.IsError {
 			e["error"] = l.Result
 		}
