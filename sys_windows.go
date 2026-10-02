@@ -37,7 +37,15 @@ var (
 	procGetClipboardData  = user32.NewProc("GetClipboardData")
 	procIsClipboardFormat = user32.NewProc("IsClipboardFormatAvailable")
 	procDragQueryFileW    = shell32.NewProc("DragQueryFileW")
+	procAllowSetFg        = user32.NewProc("AllowSetForegroundWindow")
 )
+
+// allowForeground lets the copy of AIT that is already open bring itself to
+// the front when this launch hands over to it; Windows refuses otherwise.
+func allowForeground() {
+	const asfwAny = ^uintptr(0)
+	procAllowSetFg.Call(asfwAny)
+}
 
 const cfHDROP = 15
 

@@ -71,8 +71,13 @@ const assert = require("node:assert/strict");
     assert.match(await page.locator(".cm-name").textContent(), /Opus 5.5/);
     await page.evaluate(() => handoverProgress(tabs.get(1), "failed"));
     assert.equal(await page.locator(".c-send").isEnabled(), true, "failure unlocks composer");
+    await page.evaluate(() => { order = [1, 2, 3]; window.activated = []; activate = (id) => activated.push(id); });
+    await page.locator(".field textarea").fill("");
+    for (const key of ["Control+2", "Control+9", "Control+1", "Control+5"]) await page.keyboard.press(key);
+    assert.deepEqual(await page.evaluate(() => activated), [2, 3, 1], "Ctrl+digit jumps to tabs");
+    assert.equal(await page.locator(".field textarea").inputValue(), "", "Ctrl+digit types nothing");
     assert.deepEqual(errors, []);
-    console.log("Chat UI: focus, selection, controls, handover progress, Escape, and model display passed.");
+    console.log("Chat UI: focus, selection, controls, handover progress, Escape, model display, and tab keys passed.");
   } finally {
     await browser.close();
   }

@@ -368,7 +368,7 @@ func toolResults(content json.RawMessage) []Ev {
 		}
 		text := contentText(b.Content)
 		if len(text) > 20000 {
-			text = text[:20000] + "\n…"
+			text = cutText(text, 20000) + "\n…"
 		}
 		out = append(out, Ev{"k": "result", "id": b.ID, "ok": !b.IsError, "text": text})
 	}

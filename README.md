@@ -59,7 +59,8 @@ AIT finds them by itself and uses the accounts you are already signed in with.
 - **History.** Search and reopen any past conversation (Ctrl+Shift+H).
 - **Two looks.** A terminal style and a desktop chat style, Campbell and PowerShell-blue
   themes, or your own colours.
-- **Also a terminal.** PowerShell and Command Prompt tabs, Windows Terminal-style.
+- **Also a terminal.** PowerShell and Command Prompt tabs, Windows Terminal-style. Ctrl+1–8 jump
+  to a tab, Ctrl+9 to the last.
 - Attach files by pasting, dragging them in, or with the paperclip. Zoom with Ctrl+mouse wheel.
 
 ## Screenshots

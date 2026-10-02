@@ -87,7 +87,7 @@ func (a *App) History() []ChatView {
 	for _, ch := range all {
 		title := strings.Join(strings.Fields(ch.Title), " ")
 		if len(title) > 140 {
-			title = title[:140] + "…"
+			title = cutText(title, 140) + "…"
 		}
 		ch.Title = title
 		out = append(out, ChatView{

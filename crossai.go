@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Moving a conversation to another AI. Each AI stores conversations in its
@@ -179,6 +180,20 @@ func (a *App) writeHandover(t *Tab, from Provider, reason string) (string, error
 	return p, os.WriteFile(p, []byte(text), 0o644)
 }
 
+// trimHandover keeps the start (the original request) and the most recent
+// work, cutting on line breaks so no character is split in half.
+func trimHandover(text string) string {
+	head := text[:8<<10]
+	if i := strings.LastIndexByte(head, '\n'); i > 0 {
+		head = head[:i]
+	}
+	tail := text[len(text)-(handoverLimit-(8<<10)):]
+	if i := strings.IndexByte(tail, '\n'); i >= 0 {
+		tail = tail[i+1:]
+	}
+	return head + "\n\n[… earlier part of the conversation left out …]\n\n" + tail
+}
+
 func toolLine(name string, input any) string {
 	in, _ := input.(map[string]any)
 	str := func(k string) string { s, _ := in[k].(string); return s }
@@ -201,13 +216,21 @@ func toolLine(name string, input any) string {
 	return "Used " + name
 }
 
+// cutText shortens s to at most n bytes without splitting a character.
+func cutText(s string, n int) string {
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
 func firstLine(s string) string {
 	s = strings.TrimSpace(s)
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i] + " …"
 	}
 	if len(s) > 200 {
-		s = s[:200] + "…"
+		s = cutText(s, 200) + "…"
 	}
 	return s
 }

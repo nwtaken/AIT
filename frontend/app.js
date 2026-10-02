@@ -423,6 +423,9 @@ function keys(e, tab) {
   }
   if (ctrl && e.key === "Tab") { cycle(e.shiftKey ? -1 : 1); return stop(e); }
   if (ctrl && !e.shiftKey) {
+    // Ctrl+1–8 go to that tab, Ctrl+9 to the last one, as in browsers.
+    const d = /^Digit([1-9])$/.exec(e.code);
+    if (d) { const id = d[1] === "9" ? order[order.length - 1] : order[d[1] - 1]; if (id) activate(id); return stop(e); }
     if (k === "c" && tab.term?.hasSelection()) { copy(tab); return stop(e); }
     if (k === "v") return tab.native ? true : false; // native paste -> pasteEvent / xterm
     if (k === "=" || k === "+") { zoom(1); return stop(e); }

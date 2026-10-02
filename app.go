@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -187,6 +188,19 @@ func (a *App) profiles() []Profile {
 		out = append(out, Profile{ID: id, Name: p.Name(), Agent: true, Chat: chatOf(p) != nil, Models: p.Models(), Installed: p.Command() != nil})
 	}
 	return append(out, Profile{ID: "powershell", Name: "Windows PowerShell", Installed: true}, Profile{ID: "cmd", Name: "Command Prompt", Installed: true})
+}
+
+// secondLaunch brings the open window forward when AIT is started again.
+func (a *App) secondLaunch(options.SecondInstanceData) {
+	if a.ctx == nil {
+		return
+	}
+	runtime.WindowUnminimise(a.ctx)
+	// Windows may refuse the focus; a brief always-on-top still puts the
+	// window above the others.
+	runtime.WindowSetAlwaysOnTop(a.ctx, true)
+	runtime.WindowSetAlwaysOnTop(a.ctx, a.store.Config().AlwaysOnTop)
+	runtime.WindowShow(a.ctx)
 }
 
 // Quit closes the app for real, after the front end has confirmed.

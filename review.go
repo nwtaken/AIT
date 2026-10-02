@@ -68,7 +68,7 @@ func reviewPrompt(cwd, history string) string {
 	cmd.Dir = cwd
 	diff, _ := cmd.Output()
 	if len(diff) > 40<<10 {
-		diff = append(diff[:40<<10], []byte("\n[diff truncated; inspect the workspace for the rest]")...)
+		diff = []byte(cutText(string(diff), 40<<10) + "\n[diff truncated; inspect the workspace for the rest]")
 	}
 	return "You are a second AI reviewing another AI's work. Read the user's exact request and the work so far. " +
 		"Compare the result to that request and inspect the workspace if needed. For a simple request, still give your best concrete improvements. " +

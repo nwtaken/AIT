@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 type chatSink struct {
@@ -267,5 +268,26 @@ func TestNativeChatKeepsItsOwnTranscript(t *testing.T) {
 	tab.mu.Unlock()
 	if got != own {
 		t.Fatalf("tab moved to %s, want %s", got, own)
+	}
+}
+
+func TestTrimHandoverKeepsWholeCharacters(t *testing.T) {
+	line := strings.Repeat("ş—…🙂", 37) + "\n"
+	text := "# Conversation handed over\n" + strings.Repeat(line, 3000)
+	out := trimHandover(text)
+	if !utf8.ValidString(out) {
+		t.Fatal("trimmed handover is not valid UTF-8")
+	}
+	if len(out) > handoverLimit+100 || !strings.HasPrefix(out, "# Conversation handed over\n") || !strings.HasSuffix(out, line) {
+		t.Fatalf("trim lost the start or the end: %d bytes", len(out))
+	}
+}
+
+func TestCutTextKeepsWholeCharacters(t *testing.T) {
+	s := strings.Repeat("a", 139) + "ş" + strings.Repeat("—", 100)
+	for _, n := range []int{139, 140, 141, 142, 143} {
+		if got := cutText(s, n); !utf8.ValidString(got) || len(got) > n {
+			t.Fatalf("cutText(%d) = %d bytes, valid %v", n, len(got), utf8.ValidString(got))
+		}
 	}
 }

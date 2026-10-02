@@ -23,6 +23,7 @@ func main() {
 		os.Exit(1)
 	}
 	app := NewApp(store)
+	allowForeground()
 
 	err = wails.Run(&options.App{
 		Title:            "AIT",
@@ -38,6 +39,12 @@ func main() {
 		OnBeforeClose:    app.beforeClose,
 		DragAndDrop:      &options.DragAndDrop{EnableFileDrop: true},
 		Bind:             []any{app},
+		// A second launch shows the open window instead of starting another
+		// AIT that would fight it over the same accounts and chats.
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId:               "ait-c3a7e0f4-5b1d-4e8a-9f20-6d4b1c8e7a35",
+			OnSecondInstanceLaunch: app.secondLaunch,
+		},
 		Windows: &windows.Options{
 			Theme:                windows.Dark,
 			DisableWindowIcon:    false,
