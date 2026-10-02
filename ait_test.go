@@ -98,6 +98,10 @@ func fakeClaudeStream() {
 			continue
 		}
 		text := m.Message.Content[len(m.Message.Content)-1].Text
+		if text == "hang" { // a turn that is still running
+			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"m0","usage":{"input_tokens":5}}}}`)
+			continue
+		}
 		if text == "ask" {
 			w(`{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{"file_path":"x.txt"},"permission_suggestions":[{"type":"setMode"}]}}`)
 			sc.Scan() // the control_response

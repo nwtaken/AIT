@@ -291,3 +291,84 @@ func TestCutTextKeepsWholeCharacters(t *testing.T) {
 		}
 	}
 }
+
+// Switching accounts mid-turn tells the next account to carry on; after a
+// finished turn the switch just resumes and waits.
+func TestSwitchMidTurnContinues(t *testing.T) {
+	root, home, cwd := t.TempDir(), t.TempDir(), t.TempDir()
+	mainDir := filepath.Join(home, ".claude")
+	second := filepath.Join(root, "profiles", "acct-02")
+	for _, d := range []string{mainDir, second} {
+		os.MkdirAll(d, 0o755)
+		os.WriteFile(filepath.Join(d, ".credentials.json"), []byte("{}"), 0o644)
+	}
+	b, _ := json.Marshal(Config{Accounts: []Account{{ID: "main", Label: "Main"}, {ID: "acct-02", Label: "Account 2", Provider: "claude", Dir: second}}, StartingDir: cwd})
+	os.MkdirAll(root, 0o755)
+	os.WriteFile(filepath.Join(root, "config.json"), b, 0o644)
+	t.Setenv("AIT_FAKE_CLI", "1")
+	store, _ := newStoreAt(root, home)
+	registry["claude"] = fakeChat{registry["claude"].(*claude)}
+	app := NewApp(store)
+	evs := make(chan Ev, 256)
+	app.emit = func(name string, d ...any) {
+		if name == "chat:ev" {
+			for _, e := range d[1].([]Ev) {
+				evs <- e
+			}
+		}
+	}
+	if _, err := app.Open(OpenRequest{ID: 1, Profile: "claude", Cols: 80, Rows: 24}); err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close(1)
+	wait := func(within time.Duration, pred func(Ev) bool) bool {
+		deadline := time.After(within)
+		for {
+			select {
+			case e := <-evs:
+				if pred(e) {
+					return true
+				}
+			case <-deadline:
+				return false
+			}
+		}
+	}
+	isInit := func(e Ev) bool { return e["k"] == "init" }
+	echoed := func(s string) func(Ev) bool {
+		return func(e Ev) bool { return e["k"] == "delta" && e["text"] == "echo: "+s }
+	}
+	// A transcript to resume, at the path the tab claimed for the session.
+	writeTranscript := func() {
+		tab := app.tab(1)
+		tab.mu.Lock()
+		p := tab.session
+		tab.mu.Unlock()
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(`{"type":"user","message":{"role":"user","content":"hang"}}`+"\n"), 0o644)
+	}
+	if !wait(5*time.Second, isInit) {
+		t.Fatal("no init")
+	}
+	writeTranscript()
+	app.ChatSend(1, "hang", nil)
+	if !wait(5*time.Second, func(e Ev) bool { return e["k"] == "msg" }) {
+		t.Fatal("turn did not start")
+	}
+	if err := app.Switch(1, "acct-02"); err != nil {
+		t.Fatal(err)
+	}
+	if !wait(5*time.Second, echoed("continue")) {
+		t.Fatal("switching mid-turn did not continue the work")
+	}
+	if !wait(5*time.Second, func(e Ev) bool { return e["k"] == "done" }) {
+		t.Fatal("continued turn did not finish")
+	}
+	writeTranscript()
+	if err := app.Switch(1, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if wait(2*time.Second, echoed("continue")) {
+		t.Fatal("switching after a finished turn sent continue")
+	}
+}

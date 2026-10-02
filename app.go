@@ -49,6 +49,9 @@ type Tab struct {
 	// adopted is false while the tab is a prewarmed standby with no id yet;
 	// its output then goes to backlog instead of the page.
 	adopted atomic.Bool
+	// working is true from a message until the AI's turn ends, so a switch
+	// made mid-turn tells the next account to carry on.
+	working atomic.Bool
 	backMu  sync.Mutex
 	backlog []byte
 	// Native chat (chat.go): the agent runs in streaming mode, no PTY.
@@ -510,7 +513,11 @@ func (a *App) Switch(tabID int, acctID string) error {
 		}
 		return a.crossOver(t, to, acct, "was switched out by the user")
 	}
-	return a.relaunch(t, acct, "")
+	prompt := ""
+	if t.working.Load() {
+		prompt = "continue"
+	}
+	return a.relaunch(t, acct, prompt)
 }
 
 // AddAccount creates an empty account for an AI; the page then signs it in.

@@ -158,6 +158,7 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 		for _, e := range evs {
 			switch e["k"] {
 			case "msg":
+				t.working.Store(true)
 				turnText.Reset()
 			case "start":
 				textBlocks[e["i"]] = e["type"] == "text"
@@ -168,6 +169,7 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 					}
 				}
 			case "done":
+				t.working.Store(false)
 				requestReview = strings.TrimSpace(turnText.String()) == reviewMarker
 				turnText.Reset()
 			case "quota":
@@ -263,6 +265,7 @@ func (a *App) ChatSend(id int, text string, files []string) error {
 	}
 	a.store.Trust(t.cwd) // sending in a folder is consent to work in it
 	if b := cp.ChatUser(t.chatState, strings.TrimSpace(text), imgs); b != nil {
+		t.working.Store(true)
 		return proc.send(b)
 	}
 	return nil
