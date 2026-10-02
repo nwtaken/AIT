@@ -12,8 +12,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// The tray icon. Left-click opens a small status panel above the tray (the
-// main window in its mini layout); right-click has Open, Hide and Quit.
+// The tray icon. Left- or right-click opens a small status panel above the
+// tray (the main window in its mini layout) with Open, Hide, Settings, Quit.
 // Hidden to the tray, AIT keeps running its agents with no window at all.
 
 //go:embed build/windows/icon.ico
@@ -74,14 +74,9 @@ func (a *App) startTray() {
 		systray.Run(func() {
 			systray.SetIcon(trayIcon)
 			systray.SetTooltip("AIT")
+			// Either button opens the panel, as tray widgets do.
 			systray.SetOnClick(func(systray.IMenu) { a.TrayPanel() })
-			systray.AddMenuItem("Open AIT", "").Click(a.ShowApp)
-			systray.AddMenuItem("Hide to tray", "").Click(a.HideToTray)
-			systray.AddSeparator()
-			systray.AddMenuItem("Quit AIT", "").Click(func() {
-				a.ShowApp()
-				a.emit("app:close-requested") // the usual confirmation
-			})
+			systray.SetOnRClick(func(systray.IMenu) { a.TrayPanel() })
 		}, nil)
 	}()
 }
