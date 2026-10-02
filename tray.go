@@ -2,71 +2,61 @@ package main
 
 import (
 	_ "embed"
-	"os"
+	"encoding/json"
+	"log"
+	"path/filepath"
 	goruntime "runtime"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unsafe"
 
 	"github.com/energye/systray"
+	"github.com/wailsapp/go-webview2/pkg/edge"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/sys/windows"
 )
 
-// The tray icon. Left- or right-click opens a small status panel above the
-// tray (the main window in its mini layout) with Open, Hide, Settings, Quit.
-// Hidden to the tray, AIT keeps running its agents with no window at all.
+// The tray icon and its status panel. The panel is a window of its own (a
+// small WebView2 next to the tray), so the main window never changes when it
+// opens. Its page is drawn with AIT's own stylesheets, and the main page
+// sends it the live status and theme while it is open (TrayState).
+// Everything here runs on the tray's thread, which owns the panel.
 
 //go:embed build/windows/icon.ico
 var trayIcon []byte
 
 const windowClass = "AITMainWindow"
 
-const miniW, miniH = 300, 400 // panel size in DIPs
+const panelW = 300 // panel width in DIPs; the height follows its content
+
+const wmPanelUpdate = 0x8000 + 21 // WM_APP+21: new status for the panel
 
 var (
-	procFindWindowExW       = user32.NewProc("FindWindowExW")
-	procGetWindowThreadPID  = user32.NewProc("GetWindowThreadProcessId")
-	procGetWindowPlacement  = user32.NewProc("GetWindowPlacement")
-	procSetWindowPlacement  = user32.NewProc("SetWindowPlacement")
 	procSetWindowPos        = user32.NewProc("SetWindowPos")
-	procIsWindowVisible     = user32.NewProc("IsWindowVisible")
 	procShowWindow          = user32.NewProc("ShowWindow")
+	procIsWindowVisible     = user32.NewProc("IsWindowVisible")
 	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
 	procGetDpiForWindow     = user32.NewProc("GetDpiForWindow")
 	procSystemParametersW   = user32.NewProc("SystemParametersInfoW")
+	procCreateWindowExW     = user32.NewProc("CreateWindowExW")
+	procRegisterClassExW    = user32.NewProc("RegisterClassExW")
+	procDefWindowProcW      = user32.NewProc("DefWindowProcW")
+	procPostMessageW        = user32.NewProc("PostMessageW")
+	procCoInitializeEx      = windows.NewLazySystemDLL("ole32.dll").NewProc("CoInitializeEx")
 )
 
 type winRect struct{ Left, Top, Right, Bottom int32 }
 
-type windowPlacement struct {
-	Length, Flags, ShowCmd uint32
-	MinPos, MaxPos         [2]int32
-	Normal                 winRect
-}
+type trayPanel struct {
+	hwnd     uintptr
+	web      *edge.Chromium
+	height   int // content height in DIPs, as the page last measured it
+	hiddenAt time.Time
 
-type trayState struct {
-	mu     sync.Mutex
-	mini   bool
-	saved  windowPlacement
-	hidden bool // the window was hidden to the tray before the panel opened
-}
-
-// mainWindow finds AIT's own window.
-func mainWindow() uintptr {
-	cls, _ := windows.UTF16PtrFromString(windowClass)
-	var h uintptr
-	for {
-		h, _, _ = procFindWindowExW.Call(0, h, uintptr(unsafe.Pointer(cls)), 0)
-		if h == 0 {
-			return 0
-		}
-		var pid uint32
-		procGetWindowThreadPID.Call(h, uintptr(unsafe.Pointer(&pid)))
-		if int(pid) == os.Getpid() {
-			return h
-		}
-	}
+	mu    sync.Mutex
+	state string // latest status from the main page, JSON
 }
 
 // trayGone closes once the icon has been removed from the tray.
@@ -85,126 +75,218 @@ func stopTray() {
 func (a *App) startTray() {
 	go func() {
 		goruntime.LockOSThread()
+		const coinitApartmentThreaded = 2
+		procCoInitializeEx.Call(0, coinitApartmentThreaded) // WebView2 needs an STA thread
 		systray.Run(func() {
 			systray.SetIcon(trayIcon)
 			systray.SetTooltip("AIT")
-			// Either button opens the panel, as tray widgets do.
-			systray.SetOnClick(func(systray.IMenu) { a.TrayPanel() })
-			systray.SetOnRClick(func(systray.IMenu) { a.TrayPanel() })
+			// Either button toggles the panel, as tray widgets do.
+			systray.SetOnClick(func(systray.IMenu) { a.togglePanel() })
+			systray.SetOnRClick(func(systray.IMenu) { a.togglePanel() })
 		}, func() { close(trayGone) })
 	}()
 }
 
-// HideToTray removes the window entirely; agents keep working.
-func (a *App) HideToTray() {
-	a.endMini(true)
-	runtime.WindowHide(a.ctx)
-	a.tray.mu.Lock()
-	a.tray.hidden = true
-	a.tray.mu.Unlock()
-}
-
-// ShowApp brings the full window back.
-func (a *App) ShowApp() {
-	a.endMini(false)
-	a.tray.mu.Lock()
-	a.tray.hidden = false
-	a.tray.mu.Unlock()
-	runtime.WindowShow(a.ctx)
-}
-
-// TrayPanel opens the small status panel above the tray, or closes it.
-func (a *App) TrayPanel() {
-	h := mainWindow()
-	if h == 0 {
+// togglePanel runs on the tray thread (from the icon's click).
+func (a *App) togglePanel() {
+	p := &a.panel
+	if p.hwnd == 0 && !a.createPanel() {
 		return
 	}
-	a.tray.mu.Lock()
-	if a.tray.mini {
-		a.tray.mu.Unlock()
-		a.TrayDismiss()
+	if vis, _, _ := procIsWindowVisible.Call(p.hwnd); vis != 0 {
+		a.hidePanel()
 		return
 	}
-	a.tray.mini = true
-	a.tray.saved = windowPlacement{Length: uint32(unsafe.Sizeof(windowPlacement{}))}
-	procGetWindowPlacement.Call(h, uintptr(unsafe.Pointer(&a.tray.saved)))
-	vis, _, _ := procIsWindowVisible.Call(h)
-	if vis == 0 {
-		a.tray.hidden = true
-	}
-	a.tray.mu.Unlock()
-
-	a.emit("tray:mini", true)
-	runtime.WindowSetMinSize(a.ctx, 1, 1)
-	const swShowNormal = 1
-	procShowWindow.Call(h, swShowNormal)
-	a.placePanel(h, miniH)
-	procSetForegroundWindow.Call(h)
-}
-
-// TrayFit sizes the panel to its content (height in DIPs), keeping it
-// anchored above the tray.
-func (a *App) TrayFit(height int) {
-	a.tray.mu.Lock()
-	mini := a.tray.mini
-	a.tray.mu.Unlock()
-	h := mainWindow()
-	if !mini || h == 0 || height < 100 {
+	// Clicking the icon takes focus from an open panel, which hides it just
+	// before this click arrives; that click means "close", not "reopen".
+	if time.Since(p.hiddenAt) < 400*time.Millisecond {
 		return
 	}
-	a.placePanel(h, height)
+	a.emit("tray:open", true)
+	a.placePanel()
+	const swShow = 5
+	procShowWindow.Call(p.hwnd, swShow)
+	p.web.Hide()
+	p.web.Show()
+	procSetForegroundWindow.Call(p.hwnd)
+	p.web.Focus()
+	a.updatePanel()
 }
 
-func (a *App) placePanel(h uintptr, height int) {
+func (a *App) hidePanel() {
+	p := &a.panel
+	if p.hwnd == 0 {
+		return
+	}
+	if vis, _, _ := procIsWindowVisible.Call(p.hwnd); vis == 0 {
+		return
+	}
+	const swHide = 0
+	procShowWindow.Call(p.hwnd, swHide)
+	p.hiddenAt = time.Now()
+	a.emit("tray:open", false)
+}
+
+// placePanel puts the panel above the tray, sized to its content.
+func (a *App) placePanel() {
+	p := &a.panel
 	var work winRect
 	const spiGetWorkArea = 0x30
 	procSystemParametersW.Call(spiGetWorkArea, 0, uintptr(unsafe.Pointer(&work)), 0)
-	dpi, _, _ := procGetDpiForWindow.Call(h)
+	dpi, _, _ := procGetDpiForWindow.Call(p.hwnd)
 	if dpi == 0 {
 		dpi = 96
 	}
-	w, ht := int32(miniW*int(dpi)/96), int32(height*int(dpi)/96)
+	h := max(p.height, 120)
+	w, ht := int32(panelW*int(dpi)/96), int32(h*int(dpi)/96)
 	gap := int32(12 * int(dpi) / 96)
 	ht = min(ht, work.Bottom-work.Top-2*gap)
-	const swpShow = 0x0040
 	hwndTopmost := ^uintptr(0) // HWND_TOPMOST (-1)
-	procSetWindowPos.Call(h, hwndTopmost, uintptr(work.Right-w-gap), uintptr(work.Bottom-ht-gap), uintptr(w), uintptr(ht), swpShow)
+	const swpNoActivate = 0x0010
+	procSetWindowPos.Call(p.hwnd, hwndTopmost, uintptr(work.Right-w-gap), uintptr(work.Bottom-ht-gap), uintptr(w), uintptr(ht), swpNoActivate)
+	p.web.Resize()
 }
 
-// TrayDismiss closes the panel, putting the window back as it was.
-func (a *App) TrayDismiss() { a.endMini(true) }
+// TrayState is the main page's latest status for the panel.
+func (a *App) TrayState(state string) {
+	p := &a.panel
+	p.mu.Lock()
+	p.state = state
+	p.mu.Unlock()
+	if p.hwnd != 0 {
+		procPostMessageW.Call(p.hwnd, wmPanelUpdate, 0, 0)
+	}
+}
 
-// endMini leaves the panel layout; restore puts the window back in the
-// state it had before (hidden, minimised or open where it was).
-func (a *App) endMini(restore bool) {
-	a.tray.mu.Lock()
-	if !a.tray.mini {
-		a.tray.mu.Unlock()
+func (a *App) updatePanel() {
+	p := &a.panel
+	p.mu.Lock()
+	s := p.state
+	p.mu.Unlock()
+	if s != "" && p.web != nil {
+		p.web.Eval("update(" + s + ")")
+	}
+}
+
+// createPanel makes the panel window and its WebView2 (once, on first use).
+func (a *App) createPanel() bool {
+	p := &a.panel
+	inst := windows.Handle(0)
+	windows.GetModuleHandleEx(0, nil, &inst)
+	cls, _ := windows.UTF16PtrFromString("AITTrayPanel")
+	proc := syscall.NewCallback(func(hwnd, msg, wp, lp uintptr) uintptr {
+		const wmActivate, wmSize, wmClose, waInactive = 0x0006, 0x0005, 0x0010, 0
+		switch msg {
+		case wmActivate:
+			if wp&0xffff == waInactive {
+				a.hidePanel()
+			}
+		case wmSize:
+			if p.web != nil {
+				p.web.Resize()
+			}
+		case wmClose:
+			a.hidePanel()
+			return 0
+		case wmPanelUpdate:
+			a.updatePanel()
+			return 0
+		}
+		r, _, _ := procDefWindowProcW.Call(hwnd, msg, wp, lp)
+		return r
+	})
+	type wndClassEx struct {
+		Size, Style                        uint32
+		WndProc                            uintptr
+		ClsExtra, WndExtra                 int32
+		Instance, Icon, Cursor, Background uintptr
+		MenuName, ClassName                *uint16
+		IconSm                             uintptr
+	}
+	wc := wndClassEx{WndProc: proc, Instance: uintptr(inst), ClassName: cls}
+	wc.Size = uint32(unsafe.Sizeof(wc))
+	procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
+	const wsPopup, wsClipChildren = 0x80000000, 0x02000000
+	const wsExToolWindow, wsExTopmost = 0x00000080, 0x00000008
+	title, _ := windows.UTF16PtrFromString("AIT")
+	h, _, _ := procCreateWindowExW.Call(wsExToolWindow|wsExTopmost, uintptr(unsafe.Pointer(cls)), uintptr(unsafe.Pointer(title)),
+		wsPopup|wsClipChildren, 0, 0, 300, 300, 0, 0, uintptr(inst), 0)
+	if h == 0 {
+		return false
+	}
+	p.hwnd = h
+
+	web := edge.NewChromium()
+	web.SetErrorCallback(func(err error) { log.Println("tray panel:", err) }) // never take AIT down
+	web.DataPath = filepath.Join(a.store.root, "panel-webview")
+	web.MessageCallback = func(msg string, _ *edge.ICoreWebView2, _ *edge.ICoreWebView2WebMessageReceivedEventArgs) {
+		a.panelMessage(msg)
+	}
+	// WebView2 can stay blank until it is hidden and shown once (Wails does
+	// the same: WebView2Feedback#1077).
+	web.NavigationCompletedCallback = func(*edge.ICoreWebView2, *edge.ICoreWebView2NavigationCompletedEventArgs) {
+		web.Hide()
+		web.Show()
+		a.updatePanel()
+	}
+	web.Embed(h)
+	web.Resize()
+	web.SetBackgroundColour(12, 12, 12, 255)
+	if s, err := web.GetSettings(); err == nil {
+		s.PutAreDefaultContextMenusEnabled(false)
+		s.PutAreDevToolsEnabled(false)
+		s.PutIsZoomControlEnabled(false)
+		s.PutIsStatusBarEnabled(false)
+	}
+	p.web = web
+	web.NavigateToString(panelPage())
+	return true
+}
+
+// panelMessage handles what the panel page sends (tray thread).
+func (a *App) panelMessage(msg string) {
+	if h, ok := strings.CutPrefix(msg, "h:"); ok {
+		var n int
+		if json.Unmarshal([]byte(h), &n) == nil && n != a.panel.height {
+			a.panel.height = n
+			if vis, _, _ := procIsWindowVisible.Call(a.panel.hwnd); vis != 0 {
+				a.placePanel()
+			}
+		}
 		return
 	}
-	a.tray.mini = false
-	saved, hidden := a.tray.saved, a.tray.hidden
-	a.tray.mu.Unlock()
-
-	h := mainWindow()
-	a.emit("tray:mini", false)
-	runtime.WindowSetMinSize(a.ctx, 420, 260)
-	runtime.WindowSetAlwaysOnTop(a.ctx, a.store.Config().AlwaysOnTop)
-	if h != 0 {
-		if hidden {
-			saved.ShowCmd = 0 // SW_HIDE: put the bounds back without showing
-			if !restore {
-				saved.ShowCmd = 1 // SW_SHOWNORMAL
-			}
-		} else if !restore && saved.ShowCmd == 2 { // was minimised, now opened
-			saved.ShowCmd = 1
-		}
-		if saved.ShowCmd == 1 { // open: put size and position back directly
-			r := saved.Normal
-			const swpShow, swpNoZOrder = 0x0040, 0x0004
-			procSetWindowPos.Call(h, 0, uintptr(r.Left), uintptr(r.Top), uintptr(r.Right-r.Left), uintptr(r.Bottom-r.Top), swpShow|swpNoZOrder)
-			return
-		}
-		procSetWindowPlacement.Call(h, uintptr(unsafe.Pointer(&saved)))
+	a.hidePanel()
+	switch msg {
+	case "open":
+		a.ShowApp()
+	case "hide":
+		a.HideToTray()
+	case "settings":
+		a.ShowApp()
+		a.emit("tray:settings")
+	case "quit":
+		a.ShowApp()
+		a.emit("app:close-requested") // the usual confirmation
 	}
+}
+
+// HideToTray removes the main window entirely; agents keep working.
+func (a *App) HideToTray() {
+	runtime.WindowHide(a.ctx)
+}
+
+// ShowApp brings the main window back, from the tray or minimised.
+func (a *App) ShowApp() {
+	runtime.WindowShow(a.ctx)
+}
+
+// panelPage is the panel's HTML: AIT's own stylesheets plus the panel.
+func panelPage() string {
+	read := func(name string) string {
+		b, _ := assets.ReadFile("frontend/" + name)
+		return string(b)
+	}
+	page := read("panel.html")
+	page = strings.Replace(page, "/*AIT_CSS*/", read("style.css")+"\n"+read("chat.css"), 1)
+	return page
 }

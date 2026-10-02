@@ -621,6 +621,7 @@ function verbFor(tool) {
 
 function setBusy(tab, on, verb) {
   const c = tab.chat;
+  setTimeout(trayPush);
   if (on && !c.busy) { c.started = performance.now(); c.outChars = 0; c.verb = VERBS[Math.floor(Math.random() * VERBS.length)]; }
   c.busy = on;
   c.busyEl.hidden = !on || !!c.reading;
@@ -1129,6 +1130,7 @@ function renderStatus(tab) {
     c.bytes ? "The whole conversation on disk: every message and tool output, earlier AIs included. Only the token context counts toward the limit." : "");
   seg(".sl-turn", c.lastMs ? `<b>last</b><span>${secsText(c.lastMs)}</span>` : "", c.lastMs ? "How long the last reply took" : "");
   r.querySelector(".sl-folder").textContent = c.folder || "";
+  trayPush();
 }
 
 // A small usage bar; turns to the warning colour past `hot`.

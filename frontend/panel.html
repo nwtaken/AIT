@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+/*AIT_CSS*/
+html, body { margin: 0; background: var(--bg); overflow: hidden; }
+#mini { position: static; inset: auto; }
+</style>
+</head>
+<body class="ready">
+<!-- The tray panel. AIT (tray.go) puts its stylesheets above, and the main
+     window sends its status and theme with update(). -->
+<section id="mini" aria-label="AIT status">
+  <div class="mi mn-h"><span class="icon mn-icon"></span><span class="label mn-ai">AIT</span><span class="chip mn-acct"></span></div>
+  <div class="mn-status"><div class="mn-state"><span class="verb">Starting…</span><span class="meta"></span></div><progress class="mn-bar"></progress></div>
+  <div class="mi mn-step" hidden><span class="icon"><span class="tool-dot"></span></span><span class="label"><b class="tool-l"></b> <span class="tool-d"></span></span></div>
+  <div class="mn-meters"></div>
+  <div class="mn-act">
+    <div class="sep"></div>
+    <button class="mi" data-a="open"><span class="icon"><span class="mdl">&#xE8A7;</span></span><span class="label">Open AIT</span></button>
+    <button class="mi" data-a="hide"><span class="icon"><span class="mdl">&#xE921;</span></span><span class="label">Hide to tray</span></button>
+    <button class="mi" data-a="settings"><span class="icon"><span class="mdl">&#xE713;</span></span><span class="label">Settings</span></button>
+    <div class="sep"></div>
+    <button class="mi" data-a="quit"><span class="icon"><span class="mdl">&#xE7E8;</span></span><span class="label">Quit AIT</span></button>
+  </div>
+</section>
+<script>
+"use strict";
+const post = (m) => window.chrome.webview.postMessage(m);
+const $ = (q) => document.querySelector(q);
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const secs = (ms) => ms < 60000 ? (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + "s" : Math.floor(ms / 60000) + "m " + Math.round(ms % 60000 / 1000) + "s";
+function meter(f, hot = 0.8) {
+  const w = Math.min(100, Math.max(3, Math.round(f * 100)));
+  return `<span class="sl-bar ${f >= hot ? "hot" : ""}"><i style="width:${w}%"></i></span>`;
+}
+
+let s = null;
+function update(next) {
+  s = next;
+  const root = document.documentElement;
+  for (const [k, v] of Object.entries(s.vars || {})) root.style.setProperty(k, v);
+  if (s.theme) root.dataset.theme = s.theme; else delete root.dataset.theme;
+  $(".mn-icon").innerHTML = s.icon || "";
+  $(".mn-ai").textContent = s.ai || "AIT";
+  $(".mn-acct").textContent = s.acct || "";
+  $(".mn-state .verb").textContent = s.state || "";
+  const bar = $(".mn-bar");
+  if (s.busy) bar.removeAttribute("value"); else bar.value = s.hasChat ? 1 : 0;
+  const step = $(".mn-step");
+  step.hidden = !s.step;
+  if (s.step) {
+    step.querySelector(".tool-dot").className = s.step.cls;
+    step.querySelector(".tool-dot").textContent = s.step.dot;
+    step.querySelector(".tool-l").textContent = s.step.l;
+    step.querySelector(".tool-d").textContent = s.step.d;
+  }
+  const rows = s.rows || [];
+  const html = (rows.length ? '<div class="sep"></div>' : "") + rows.map((r) =>
+    `<div class="mi mn-m"><span class="label">${esc(r.l)}<span class="sub">${esc(r.note)}</span></span>${meter(r.f)}<span class="chip">${Math.round(r.f * 100)}%</span></div>`).join("");
+  const box = $(".mn-meters");
+  if (box.innerHTML !== html) box.innerHTML = html;
+  tick();
+  fit();
+}
+
+function tick() {
+  if (!s) return;
+  $(".mn-state .meta").textContent = (s.busy && s.started ? secs(Date.now() - s.started) : "") + (s.others ? ` · ${s.others} more working` : "");
+}
+setInterval(tick, 1000);
+
+let lastH = 0;
+function fit() {
+  const h = Math.ceil($("#mini").getBoundingClientRect().height);
+  if (h !== lastH) { lastH = h; post("h:" + h); }
+}
+
+document.querySelectorAll("[data-a]").forEach((b) => b.addEventListener("click", () => post(b.dataset.a)));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") post("close"); });
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+fit();
+</script>
+</body>
+</html>

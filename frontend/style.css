@@ -283,10 +283,9 @@ body:not(.ready) #bar { transform: translateY(-6px); }
 :root[data-theme="powershell"] .ask .btn.go { color: #012456; }
 @media (prefers-reduced-motion: reduce) { body, #bar, .ask, .ask .panel { transition: none; animation: none; } }
 
-/* Tray panel: the whole window becomes a small AIT, built from the app's
+/* Tray panel (panel.html, its own window): a small AIT, built from the app's
    own surfaces (tab row, terminal background, chat font) so it follows the
    theme and the font settings. */
-body.mini > :not(#mini) { display: none !important; }
 #mini { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line); color: var(--text); font: 500 var(--fs)/1.6 var(--mono); overflow: hidden; }
 #mini .mi { font: inherit; border-radius: 0; padding: 5px 12px; min-height: 30px; }
 #mini .mi:hover { background: var(--tab-hover); }

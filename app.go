@@ -83,7 +83,7 @@ type App struct {
 	store     *Store
 	emit      func(event string, data ...any)
 	allowQuit atomic.Bool
-	tray      trayState // tray icon and status panel (tray.go)
+	panel     trayPanel // the tray icon's status panel (tray.go)
 
 	mu      sync.Mutex
 	tabs    map[int]*Tab

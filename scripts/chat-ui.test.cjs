@@ -76,11 +76,22 @@ const assert = require("node:assert/strict");
     for (const key of ["Control+2", "Control+9", "Control+1", "Control+5"]) await page.keyboard.press(key);
     assert.deepEqual(await page.evaluate(() => activated), [2, 3, 1], "Ctrl+digit jumps to tabs");
     assert.equal(await page.locator(".field textarea").inputValue(), "", "Ctrl+digit types nothing");
-    await page.evaluate(() => { tabs.get(1).chat.quota = { five: 0.32, week: 0.1 }; miniMode(true); });
-    assert.equal(await page.locator("#mini .mn-ai").textContent(), "Claude", "tray panel names the AI");
-    assert.equal(await page.locator("#mini .mn-m").count(), 2, "tray panel shows usage");
-    assert.equal(await page.locator("#panes").isVisible().catch(() => false), false, "tray panel hides the app");
-    await page.evaluate(() => miniMode(false));
+    const snap = await page.evaluate(() => { tabs.get(1).chat.quota = { five: 0.32, week: 0.1 }; return traySnapshot(); });
+    assert.equal(snap.ai, "Claude", "tray status names the AI");
+    assert.equal(snap.rows.length, 2, "tray status carries usage");
+    const panel = await browser.newPage({ viewport: { width: 300, height: 400 } });
+    panel.on("pageerror", e => errors.push(e.message));
+    const css = ["style.css", "chat.css"].map((f) => fs.readFileSync(path.join(frontend, f), "utf8")).join("\n");
+    const page2 = fs.readFileSync(path.join(frontend, "panel.html"), "utf8").replace("/*AIT_CSS*/", css)
+      .replace("<script>", '<script>window.posted = []; window.chrome = { webview: { postMessage: (m) => posted.push(m) } };</script><script>');
+    await panel.setContent(page2);
+    await panel.evaluate((s) => update(s), snap);
+    assert.equal(await panel.locator(".mn-ai").textContent(), "Claude", "tray panel names the AI");
+    assert.equal(await panel.locator(".mn-m").count(), 2, "tray panel shows usage");
+    await panel.click('[data-a="hide"]');
+    const posted = await panel.evaluate(() => posted);
+    assert.ok(posted.some((m) => m.startsWith("h:")) && posted.includes("hide"), "tray panel reports its height and actions");
+    await panel.close();
     await page.evaluate(() => {
       window.savedRules = [];
       Object.assign(go.main.App, { GetRules: async () => ({ text: "old", presets: [{ name: "A", desc: "", text: "rule a" }, { name: "B", desc: "", text: "" }] }), SaveRules: async (t) => savedRules.push(t) });

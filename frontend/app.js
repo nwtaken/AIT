@@ -341,6 +341,7 @@ function activate(id) {
   const tab = tabs.get(id);
   if (!tab) return;
   active = id;
+  trayPush();
   for (const t of tabs.values()) {
     t.pane.classList.toggle("active", t.id === id);
     t.el.classList.toggle("active", t.id === id);
@@ -957,76 +958,40 @@ async function confirmQuit() {
 }
 
 // ---- tray panel ------------------------------------------------------------------
-// Left-clicking the tray icon turns the window into a small status panel.
+// The tray panel is its own small window (tray.go, panel.html). While it is
+// open, this page sends it the active chat's status and the theme.
 
-let miniTimer = 0;
-function miniMode(on) {
-  document.body.classList.toggle("mini", on);
-  $("#mini").hidden = !on;
-  clearInterval(miniTimer);
-  if (!on) return;
-  const row = (a, glyph, label) => `<button class="mi" data-a="${a}"><span class="icon"><span class="mdl">${glyph}</span></span><span class="label">${label}</span></button>`;
-  $("#mini").innerHTML = `
-    <div class="mi mn-h"><span class="icon mn-icon"></span><span class="label mn-ai"></span><span class="chip mn-acct"></span></div>
-    <div class="mn-status"><div class="mn-state"><span class="verb"></span><span class="meta"></span></div><progress class="mn-bar"></progress></div>
-    <div class="mi mn-step"><span class="icon"><span class="tool-dot"></span></span><span class="label"><b class="tool-l"></b> <span class="tool-d"></span></span></div>
-    <div class="mn-meters"></div>
-    <div class="mn-act"><div class="sep"></div>
-      ${row("open", "&#xE8A7;", "Open AIT")}${row("hide", "&#xE921;", "Hide to tray")}${row("settings", "&#xE713;", "Settings")}
-      <div class="sep"></div>${row("quit", "&#xE7E8;", "Quit AIT")}</div>`;
-  $("#mini").querySelectorAll("[data-a]").forEach((b) => b.addEventListener("click", async () => {
-    const a = b.dataset.a;
-    if (a === "hide") return API().HideToTray();
-    await API().ShowApp();
-    if (a === "settings") openSettings();
-    if (a === "quit") confirmQuit();
-  }));
-  renderMini();
-  miniTimer = setInterval(renderMini, 500);
-  fitMini();
+let trayOpen = false, trayLast = 0, trayTimer = 0;
+function trayPush() {
+  if (!trayOpen) return;
+  clearTimeout(trayTimer);
+  const wait = 200 - (Date.now() - trayLast);
+  if (wait > 0) { trayTimer = setTimeout(trayPush, wait); return; }
+  trayLast = Date.now();
+  API().TrayState(JSON.stringify(traySnapshot()));
 }
 
-// Size the panel window to its content.
-function fitMini() {
-  const m = $("#mini");
-  m.style.bottom = "auto";
-  const h = Math.ceil(m.getBoundingClientRect().height);
-  m.style.bottom = "";
-  API().TrayFit?.(h);
-}
-
-function renderMini() {
-  const m = $("#mini"), tab = tabs.get(active), c = tab?.chat;
+function traySnapshot() {
+  const tab = tabs.get(active), c = tab?.chat, root = document.documentElement;
+  const vars = {};
+  for (const k of root.style) vars[k] = root.style.getPropertyValue(k);
   const others = [...tabs.values()].filter((t) => t !== tab && t.chat?.busy).length;
-  m.querySelector(".mn-icon").innerHTML = tab ? icon(tab.profile) : "";
-  m.querySelector(".mn-ai").textContent = tab ? profile(tab.profile).name : "AIT";
-  m.querySelector(".mn-acct").textContent = tab?.account || "";
-  const busy = !!(c?.busy || c?.reading);
   const state = !c ? "No AI chat open" : c.reading ? "Reading the handover" : tab.card ? "Waiting for your answer"
     : c.busy ? (c.verb || "Working") + "…" : "Done";
-  const st = m.querySelector(".mn-state");
-  st.querySelector(".verb").textContent = state;
-  st.querySelector(".meta").textContent = (c?.busy ? secsText(performance.now() - c.started) : "") + (others ? ` · ${others} more working` : "");
-  const bar = m.querySelector(".mn-bar");
-  if (busy) bar.removeAttribute("value"); else bar.value = c ? 1 : 0;
   const tools = c?.thread.querySelectorAll(".tool-h");
   const last = tools?.length ? tools[tools.length - 1] : null;
-  const step = m.querySelector(".mn-step");
-  step.hidden = !last;
-  if (last) {
-    step.querySelector(".tool-dot").className = last.querySelector(".tool-dot").className;
-    step.querySelector(".tool-dot").textContent = last.querySelector(".tool-dot").textContent;
-    step.querySelector(".tool-l").textContent = last.querySelector(".tool-l").textContent;
-    step.querySelector(".tool-d").textContent = last.querySelector(".tool-d").textContent;
-  }
+  const dot = last?.querySelector(".tool-dot");
   const q = c?.quota, rows = [];
-  if (q?.five !== undefined) rows.push(["5-hour limit", q.five, q.fiveReset ? "resets in " + untilText(q.fiveReset) : ""]);
-  if (q?.week !== undefined) rows.push(["Weekly limit", q.week, q.weekReset ? "resets " + dayText(q.weekReset) : ""]);
-  if (c?.ctx && c.window) rows.push(["Context", c.ctx / c.window, fmtNum(c.ctx) + " / " + fmtNum(c.window) + (c.bytes ? " · " + fmtBytes(c.bytes) + " full" : "")]);
-  const html = (rows.length ? '<div class="sep"></div>' : "") + rows.map(([l, f, note]) =>
-    `<div class="mi mn-m"><span class="label">${l}<span class="sub">${esc(note)}</span></span>${meter(f)}<span class="chip">${pct(f)}</span></div>`).join("");
-  const box = m.querySelector(".mn-meters");
-  if (box.innerHTML !== html) { box.innerHTML = html; fitMini(); }
+  if (q?.five !== undefined) rows.push({ l: "5-hour limit", f: q.five, note: q.fiveReset ? "resets in " + untilText(q.fiveReset) : "" });
+  if (q?.week !== undefined) rows.push({ l: "Weekly limit", f: q.week, note: q.weekReset ? "resets " + dayText(q.weekReset) : "" });
+  if (c?.ctx && c.window) rows.push({ l: "Context", f: c.ctx / c.window, note: fmtNum(c.ctx) + " / " + fmtNum(c.window) + (c.bytes ? " · " + fmtBytes(c.bytes) + " full" : "") });
+  return {
+    vars, theme: root.dataset.theme || "",
+    icon: tab ? icon(tab.profile) : "", ai: tab ? profile(tab.profile).name : "AIT", acct: tab?.account || "",
+    state, hasChat: !!c, busy: !!(c?.busy || c?.reading), started: c?.busy ? Date.now() - (performance.now() - c.started) : 0, others,
+    step: last ? { cls: dot.className, dot: dot.textContent, l: last.querySelector(".tool-l").textContent, d: last.querySelector(".tool-d").textContent } : null,
+    rows,
+  };
 }
 
 // ---- misc -------------------------------------------------------------------------
@@ -1123,8 +1088,8 @@ async function boot() {
   RT().EventsOn("review:error", (id, message) => { const t = tabs.get(id); if (t?.native) reviewState(t, "error", "", message); });
   RT().EventsOn("tab:notice", (id, text) => { toast(text); updateChrome(); });
   RT().EventsOn("app:close-requested", confirmQuit);
-  RT().EventsOn("tray:mini", miniMode);
-  window.addEventListener("blur", () => { if (document.body.classList.contains("mini")) API().TrayDismiss(); });
+  RT().EventsOn("tray:open", (on) => { trayOpen = on; trayPush(); });
+  RT().EventsOn("tray:settings", openSettings);
   initSignIn();
   setInterval(() => { const t = tabs.get(active); if (t?.native) renderStatus(t); }, 30000); // keeps "resets in" current
   RT().EventsOn("update:available", showUpdate);
