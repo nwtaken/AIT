@@ -49,7 +49,7 @@ func (a *App) crossOver(t *Tab, to Provider, acct Account, reason string) error 
 		return err
 	}
 	t.agent, t.profile = to, to.ID()
-	t.session, t.model = "", ""
+	t.session, t.model, t.effort = "", "", ""
 	t.handover = fmt.Sprintf(
 		"You are taking over a conversation from %s, which %s. The conversation so far, "+
 			"including what was already done, is in this file: %s\n\n"+

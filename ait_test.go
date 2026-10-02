@@ -30,6 +30,13 @@ func TestMain(m *testing.M) {
 // fakeClaude prints what it was started with, and when its config dir holds a
 // "limit-me" marker it records a usage-limit error the way claude does.
 func fakeClaude() {
+	if len(os.Args) > 2 && os.Args[1] == "auth" && os.Args[2] == "login" {
+		fmt.Println("Opening browser to sign in…")
+		fmt.Println("[2mIf the browser didn't open, visit: https://example.com/oauth?x=1[0m")
+		os.WriteFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), ".credentials.json"), []byte("{}"), 0o644)
+		fmt.Println("Login successful.")
+		return
+	}
 	for _, a := range os.Args {
 		if a == "--input-format" {
 			fakeClaudeStream()
@@ -116,6 +123,56 @@ func fakeClaudeStream() {
 type fakeChat struct{ *claude }
 
 func (f fakeChat) Command() []string { return []string{os.Args[0]} }
+
+// Signing a new account in runs the AI's own sign-in against that account's
+// folder, passes the sign-in page on, and reports success.
+func TestSignInNewAccount(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	t.Setenv("AIT_FAKE_CLI", "1")
+	store, _ := newStoreAt(root, home)
+	registry["claude"] = fakeChat{registry["claude"].(*claude)}
+	app := NewApp(store)
+	got := make(chan map[string]any, 8)
+	app.emit = func(name string, d ...any) {
+		if name == "signin" {
+			got <- d[0].(map[string]any)
+		}
+	}
+	acct, err := store.NewAccount("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.SignIn(acct.ID); err != nil {
+		t.Fatal(err)
+	}
+	var url string
+	for {
+		select {
+		case e := <-got:
+			if u, ok := e["url"].(string); ok {
+				url = u
+			}
+			if e["done"] == true {
+				if e["ok"] != true || url != "https://example.com/oauth?x=1" {
+					t.Fatalf("sign-in result %v, url %q", e, url)
+				}
+				if store.RemoveUnused(acct.ID) == nil {
+					t.Fatal("a signed-in account was removed")
+				}
+				spare, _ := store.NewAccount("claude")
+				if err := store.RemoveUnused(spare.ID); err != nil || fileExists(spare.Dir) {
+					t.Fatalf("unused account kept: %v", err)
+				}
+				if _, ok := store.Account(spare.ID); ok {
+					t.Fatal("unused account still listed")
+				}
+				return
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("sign-in never finished")
+		}
+	}
+}
 
 func TestNativeChatRoundTrip(t *testing.T) {
 	root, home, cwd := t.TempDir(), t.TempDir(), t.TempDir()

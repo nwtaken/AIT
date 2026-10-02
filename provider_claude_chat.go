@@ -41,7 +41,23 @@ func (c *claude) ChatArgs(l Launch, perm string) []string {
 	return args
 }
 
-func (c *claude) ChatStart(st *ChatState, l Launch, perm, cwd string) [][]byte { return nil }
+// ChatStart asks for the model list (with each model's effort levels) and
+// the effort in use; the answers come back as control_responses.
+func (c *claude) ChatStart(st *ChatState, l Launch, perm, cwd string) [][]byte {
+	return [][]byte{claudeControl("ait-init", map[string]any{"subtype": "initialize"}), claudeSettings()}
+}
+
+func (c *claude) EffortArgs(level string) []string { return []string{"--effort", level} }
+
+func claudeControl(id string, req map[string]any) []byte {
+	b, _ := json.Marshal(map[string]any{"type": "control_request", "request_id": id, "request": req})
+	return append(b, '\n')
+}
+
+// claudeSettings asks for the settings in effect; the answer reports the effort.
+func claudeSettings() []byte {
+	return claudeControl("ait-settings-"+newUUID(), map[string]any{"subtype": "get_settings"})
+}
 
 func (c *claude) ChatUser(st *ChatState, text string, images []Image) []byte {
 	var content []map[string]any
@@ -75,15 +91,19 @@ func (c *claude) ChatReply(st *ChatState, req, decision string, ask json.RawMess
 }
 
 func (c *claude) ChatControl(st *ChatState, what string) []byte {
-	req := map[string]any{"subtype": "interrupt"}
 	if m, ok := strings.CutPrefix(what, "model:"); ok {
-		req = map[string]any{"subtype": "set_model"}
+		req := map[string]any{"subtype": "set_model"}
 		if m != "" {
 			req["model"] = m
 		}
+		// The effort may change with the model (per-model settings, levels it lacks).
+		return append(claudeControl(newUUID(), req), claudeSettings()...)
 	}
-	b, _ := json.Marshal(map[string]any{"type": "control_request", "request_id": newUUID(), "request": req})
-	return append(b, '\n')
+	if e, ok := strings.CutPrefix(what, "effort:"); ok {
+		req := map[string]any{"subtype": "apply_flag_settings", "settings": map[string]any{"effortLevel": e}}
+		return append(claudeControl(newUUID(), req), claudeSettings()...)
+	}
+	return claudeControl(newUUID(), map[string]any{"subtype": "interrupt"})
 }
 
 type claudeLine struct {
@@ -170,6 +190,8 @@ func (c *claude) ChatDecode(line []byte, st *ChatState) []Ev {
 			return nil // e.g. the summary a compaction feeds back in
 		}
 		return toolResults(l.Message.Content)
+	case "control_response":
+		return claudeAnswer(line)
 	case "control_request":
 		var r struct {
 			Subtype string          `json:"subtype"`
@@ -403,4 +425,52 @@ func (c *claude) ChatHistory(path string) []Ev {
 		merged = append(merged, e)
 	}
 	return merged
+}
+
+// claudeAnswer reads the answers to AIT's own requests: the model list from
+// initialize ("efforts": levels by model id, alias and name; "" is the
+// default model) and the effort in effect from get_settings ("effort"; ""
+// when the model has no effort levels).
+func claudeAnswer(line []byte) []Ev {
+	var r struct {
+		Response struct {
+			ID       string `json:"request_id"`
+			Response struct {
+				Models []struct {
+					Value  string   `json:"value"`
+					Name   string   `json:"displayName"`
+					Levels []string `json:"supportedEffortLevels"`
+				} `json:"models"`
+				Applied *struct {
+					Effort *string `json:"effort"`
+				} `json:"applied"`
+			} `json:"response"`
+		} `json:"response"`
+	}
+	if json.Unmarshal(line, &r) != nil {
+		return nil
+	}
+	resp := r.Response.Response
+	switch {
+	case r.Response.ID == "ait-init" && len(resp.Models) > 0:
+		levels := map[string][]string{}
+		for _, m := range resp.Models {
+			key := m.Value
+			if key == "default" {
+				key = ""
+			}
+			levels[key] = m.Levels
+			if m.Name != "" && !strings.HasPrefix(m.Name, "Default") {
+				levels[m.Name] = m.Levels
+			}
+		}
+		return []Ev{{"k": "efforts", "models": levels}}
+	case strings.HasPrefix(r.Response.ID, "ait-settings") && resp.Applied != nil:
+		e := ""
+		if resp.Applied.Effort != nil {
+			e = *resp.Applied.Effort
+		}
+		return []Ev{{"k": "effort", "effort": e}}
+	}
+	return nil
 }

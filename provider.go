@@ -109,6 +109,15 @@ type Model struct {
 	Desc   string `json:"desc"`
 	Family string `json:"family"` // groups versions in the switcher ("Opus")
 	Long   bool   `json:"long"`   // accepts a 1M-token context ("<id>[1m]")
+	// Thinking effort levels, lowest first, and the model's own default.
+	// Empty when the AI reports them at runtime instead (Claude: "efforts" event).
+	Efforts []string `json:"efforts,omitempty"`
+	Effort  string   `json:"effort,omitempty"`
+}
+
+// efforter is implemented by AIs whose thinking effort can be chosen.
+type efforter interface {
+	EffortArgs(level string) []string
 }
 
 // Launch describes one start of an agent process.

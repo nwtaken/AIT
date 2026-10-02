@@ -262,6 +262,15 @@ body:not(.desk) .statusline > span:empty { display: none; }
 .mp-pill.more { display: none; } .mp-pills.all .mp-pill.more { display: inline-block; animation: mpIn .15s var(--ease); }
 .mp-showall { height: 25px; padding: 0 9px; border-radius: 13px; color: var(--muted); font: 600 11px var(--ui); cursor: pointer; }
 .mp-showall:hover { color: var(--text); background: var(--flyout-hover); }
+.mp-eff { display: flex; align-items: center; gap: 12px; padding: 9px 12px 10px; border-top: 1px solid var(--flyout-line); }
+.mp-el { font: 600 11.5px var(--ui); color: var(--muted); flex: none; }
+.mp-levels { flex: 1; display: flex; gap: 3px; padding: 3px; border-radius: 9px; background: color-mix(in srgb, var(--text) 5%, transparent); border: 1px solid var(--flyout-line); }
+.mp-lv { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 5px 4px 4px; border-radius: 6px; color: var(--muted); font: 600 10.5px var(--ui); white-space: nowrap; cursor: pointer; transition: all .14s var(--ease); }
+.mp-lv i { display: block; width: 18px; height: 3px; border-radius: 2px; background: currentColor; opacity: .35;
+  clip-path: inset(0 calc(100% - var(--n) * 20%) 0 0); }
+.mp-lv:hover { color: var(--text); background: var(--flyout-hover); }
+.mp-lv.on { background: var(--accent); color: var(--bg); box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent); }
+.mp-lv.on i { opacity: .8; }
 .mp-f { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-top: 1px solid var(--flyout-line); }
 .mp-long { display: inline-flex; align-items: center; gap: 8px; font: 600 11.5px var(--ui); color: var(--muted); cursor: pointer; white-space: nowrap; }
 .mp-long.on { color: var(--text); }
@@ -274,5 +283,6 @@ body:not(.desk) .statusline > span:empty { display: none; }
 .mp-custom .mdl { font-size: 10px; color: var(--faint); }
 body:not(.desk) #modelpop { border-radius: 4px; } body:not(.desk) .mp-pill { border-radius: 3px; font-family: var(--mono); }
 body:not(.desk) .mp-fam, body:not(.desk) .mp-def { border-radius: 3px; }
+body:not(.desk) .mp-levels, body:not(.desk) .mp-lv { border-radius: 3px; } body:not(.desk) .mp-lv { font-family: var(--mono); }
 .askcard.cross { border-color: color-mix(in srgb, var(--accent) 45%, var(--hair)); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, var(--bg)), var(--bg)); }
 .askcard.cross .ak-glyph svg { width: 20px; height: 20px; }

@@ -25,6 +25,7 @@ func (c *codex) Name() string        { return "ChatGPT" }
 func (c *codex) HomeEnv() string     { return "CODEX_HOME" }
 func (c *codex) DefaultHome() string { return filepath.Join(c.userHome, ".codex") }
 func (c *codex) PresetsID() bool     { return false }
+func (c *codex) LoginArgs() []string { return []string{"login"} }
 
 // Command runs the npm launcher through node rather than the vendored exe:
 // the launcher sets the env vars codex uses to manage its own updates.
@@ -85,6 +86,10 @@ func (c *codex) Models() []Model {
 			Slug, Description, Visibility string
 			DisplayName                   string `json:"display_name"`
 			Priority                      int
+			Effort                        string `json:"default_reasoning_level"`
+			Levels                        []struct {
+				Effort string `json:"effort"`
+			} `json:"supported_reasoning_levels"`
 		} `json:"models"`
 	}
 	b, err := os.ReadFile(filepath.Join(c.DefaultHome(), "models_cache.json"))
@@ -102,13 +107,21 @@ func (c *codex) Models() []Model {
 			if i := strings.LastIndex(name, "-"); i > 0 && !strings.ContainsAny(name[i+1:], "0123456789") {
 				fam = name[:i]
 			}
-			out = append(out, Model{ID: m.Slug, Name: name, Desc: m.Description, Family: fam})
+			var levels []string
+			for _, l := range m.Levels {
+				levels = append(levels, l.Effort)
+			}
+			out = append(out, Model{ID: m.Slug, Name: name, Desc: m.Description, Family: fam, Efforts: levels, Effort: m.Effort})
 		}
 	}
 	return out
 }
 
 func (c *codex) ModelArgs(id string) []string { return []string{"-m", id} }
+
+func (c *codex) EffortArgs(level string) []string {
+	return []string{"-c", "model_reasoning_effort=" + tomlString(level)}
+}
 
 // ShareMemory: Codex keeps its own memories in a database; that is left
 // alone and the shared folder is reached through its instructions.

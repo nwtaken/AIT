@@ -174,6 +174,10 @@ input { font: inherit; color: inherit; }
 .dialog h2 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
 .dialog p { margin: 0 0 18px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
+#signin p .spin { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+#slink { display: block; margin: -8px 0 16px; color: var(--accent); font-size: 12px; text-decoration: none; }
+#slink:hover { text-decoration: underline; }
+#slink[hidden] { display: none; }
 .btn { min-width: 84px; height: 30px; padding: 0 14px; border-radius: 5px; background: #333; border: 1px solid #3f3f3f; color: var(--text); }
 .btn:hover { background: #3a3a3a; }
 .btn.primary { background: #c42b1c; border-color: #d23a2b; }

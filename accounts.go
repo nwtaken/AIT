@@ -328,6 +328,25 @@ func (s *Store) NewAccount(p string) (Account, error) {
 	return a, s.saveConfig(c)
 }
 
+// RemoveUnused drops an account that was never signed in, with its folder.
+func (s *Store) RemoveUnused(id string) error {
+	c := s.Config()
+	for i, a := range c.Accounts {
+		if a.ID != id {
+			continue
+		}
+		if a.Dir == "" || s.signedIn(a) {
+			return fmt.Errorf("%s is signed in; not removing it", a.Label)
+		}
+		c.Accounts = append(c.Accounts[:i], c.Accounts[i+1:]...)
+		if err := s.saveConfig(c); err != nil {
+			return err
+		}
+		return os.RemoveAll(a.Dir)
+	}
+	return nil
+}
+
 func (s *Store) hasID(c Config, id string) bool {
 	for _, a := range c.Accounts {
 		if a.ID == id {

@@ -637,7 +637,7 @@ async function accountMenu() {
       html: `<span class="radio"></span><span class="label">${esc(a.label)}<span class="sub">${esc(a.email || "not signed in")}${a.hasQuota ? ` · 5h ${Math.round(a.five * 100)}% · week ${Math.round(a.week * 100)}%` : ""}</span>${a.hasQuota ? `<span class="qbar"><i style="width:${Math.min(100, Math.round(a.five * 100))}%"></i></span>` : ""}</span><span class="chip ${a.status === "ready" ? "ready" : a.status === "limited" ? "limited" : ""}">${esc(chip)}</span>`,
       run: async () => {
         if (a.current) return;
-        if (a.status === "signed out") { openTab(tab.profile, { account: a.id }); return; }
+        if (a.status === "signed out") { signIn(tab, a.id, a.label, false); return; }
         try { await API().Switch(tab.id, a.id); } catch (err) { toast(String(err)); }
       },
     });
@@ -646,6 +646,11 @@ async function accountMenu() {
     html: `<span class="icon">${GLYPH.plus}</span><span class="label">Add ${esc(name)} account</span>`,
     run: async () => {
       const id = await API().AddAccount(tab.profile);
+      if (await API().CanSignIn(tab.profile)) {
+        const label = (await API().Accounts(tab.id)).find((a) => a.id === id)?.label || `New ${name} account`;
+        signIn(tab, id, label, true);
+        return;
+      }
       await openTab(tab.profile, { account: id });
       toast(`New ${name} account — sign in in this tab. It joins the rotation once you're in.`);
     },
@@ -654,6 +659,74 @@ async function accountMenu() {
     run: openSettings,
   });
   showMenu($("#acct"), items, true);
+}
+
+// ---- signing an account in ------------------------------------------------------
+// The AI's own sign-in runs in the background and opens the browser; this
+// dialog follows it. A new account the user backs out of is removed again.
+
+let signing = null;
+
+async function signIn(tab, id, label, fresh) {
+  hideMenu();
+  if (!(await API().CanSignIn(tab.profile))) { openTab(tab.profile, { account: id }); return; }
+  signing = { tab, id, label, fresh, done: false };
+  signState("wait");
+  $("#scrim").hidden = false;
+  $("#signin").hidden = false;
+  try { await API().SignIn(id); } catch (err) { signState("fail", String(err)); }
+}
+
+function signState(state, detail) {
+  const s = signing;
+  $("#stitle").textContent = state === "ok" ? `${s.label} is signed in` : state === "fail" ? "Sign-in didn't finish" : `Sign in to ${s.label}`;
+  $("#sbody").innerHTML = state === "ok"
+    ? `${detail ? esc(detail) + ". " : ""}AIT moves to it automatically when the account in use runs out.`
+    : state === "fail"
+      ? esc(detail || "The sign-in was closed before it finished.")
+      : `<span class="spin"></span> Your browser opened the sign-in page. Finish there and AIT picks it up right away.`;
+  $("#slink").hidden = state !== "wait" || !s.url;
+  $("#sno").textContent = state === "fail" ? "Close" : "Cancel";
+  $("#sno").hidden = state === "ok";
+  $("#suse").hidden = state !== "ok";
+  $("#syes").hidden = state === "wait";
+  $("#syes").textContent = state === "fail" ? "Try again" : "Done";
+  s.state = state;
+}
+
+function closeSignIn() {
+  const s = signing;
+  if (!s) return;
+  signing = null;
+  if (s.state === "wait") API().CancelSignIn();
+  if (s.fresh && s.state !== "ok") API().ForgetAccount(s.id);
+  $("#signin").hidden = true;
+  $("#scrim").hidden = $("#historyPanel").hidden && $("#confirm").hidden;
+  focusActive();
+  updateChrome();
+}
+
+function signEvent(e) {
+  const s = signing;
+  if (!s || e.id !== s.id) return;
+  if (e.url) { s.url = e.url; if (s.state === "wait") $("#slink").hidden = false; }
+  if (e.done) signState(e.ok ? "ok" : "fail", e.ok ? e.email : e.err);
+}
+
+function initSignIn() {
+  $("#sno").addEventListener("click", closeSignIn);
+  $("#syes").addEventListener("click", () => {
+    const s = signing;
+    if (s?.state === "fail") { signState("wait"); API().SignIn(s.id).catch((err) => signState("fail", String(err))); }
+    else closeSignIn();
+  });
+  $("#suse").addEventListener("click", async () => {
+    const s = signing;
+    closeSignIn();
+    if (s && tabs.has(s.tab.id)) { try { await API().Switch(s.tab.id, s.id); } catch (err) { toast(String(err)); } }
+  });
+  $("#slink").addEventListener("click", (e) => { e.preventDefault(); if (signing?.url) RT().BrowserOpenURL(signing.url); });
+  RT().EventsOn("signin", signEvent);
 }
 
 // ---- updates -------------------------------------------------------------------
@@ -745,7 +818,7 @@ function setTheme(id) {
 let hItems = [];
 let hSel = 0;
 
-const overlayOpen = () => !$("#historyPanel").hidden || !$("#confirm").hidden || !$("#settings").hidden;
+const overlayOpen = () => !$("#historyPanel").hidden || !$("#confirm").hidden || !$("#settings").hidden || !$("#signin").hidden;
 
 async function toggleHistory() {
   if (!$("#historyPanel").hidden) { closeHistory(); return; }
@@ -947,6 +1020,7 @@ async function boot() {
   RT().EventsOn("tab:crossask", (id, to, toName, fromName) => { const t = tabs.get(id); if (t?.native) crossAsk(t, to, toName, fromName); });
   RT().EventsOn("tab:notice", (id, text) => { toast(text); updateChrome(); });
   RT().EventsOn("app:close-requested", confirmQuit);
+  initSignIn();
   RT().EventsOn("update:available", showUpdate);
 
   $("#new").addEventListener("click", () => openTab(ui.defaultProfile));
@@ -983,6 +1057,7 @@ async function boot() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       if (answer) settle(false);
+      else if (signing) closeSignIn();
       else if (!$("#modelpop").hidden) closeModelPop();
       else if (settingsOpen()) closeSettings();
       else if (!$("#historyPanel").hidden) closeHistory();

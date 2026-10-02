@@ -177,6 +177,13 @@ function chatEvents(tab, evs, live = true) {
       case "status":
         if (e.s === "requesting" && !c.busy) setBusy(tab, true);
         break;
+      case "efforts":
+        effortsBy[tab.profile] = e.models;
+        break;
+      case "effort":
+        c.effort = e.effort;
+        renderStatus(tab);
+        break;
       case "msg":
         hideWelcome(c, !live);
         newAssistant(c, live);
@@ -670,7 +677,7 @@ function chatProvider(tab, id, name, fromName, reason) {
   const c = tab.chat;
   tab.profile = id;
   tab.el.querySelector(".icon").innerHTML = icon(id);
-  c.model = ""; c.modelChoice = ""; c.modelLabel = ""; c.commands = [];
+  c.model = ""; c.modelChoice = ""; c.modelLabel = ""; c.commands = []; c.effort = "";
   c.ta.placeholder = `Message ${name}   ·   / for commands`;
   chatDivider(tab, `↻ Continued on ${name} — ${fromName} ${reason}`);
   setBusy(tab, true);
@@ -832,6 +839,8 @@ function modelMenu(tab) {
     return rest.replace(/\s*\(latest\)$/, "") || m.name;
   };
   const hasLong = models.some((m) => m.long);
+  const levels = effortLevels(tab, choice);
+  const effort = c.effort || (models.find((m) => m.id && m.id === (choice || c.model))?.effort ?? "");
 
   pop.innerHTML = `
     <div class="mp-h"><span class="mp-i">${icon(prof.id)}</span><b>${esc(prof.name)} models</b><span class="mp-acct">${esc(tab.account || "")}</span></div>
@@ -846,6 +855,8 @@ function modelMenu(tab) {
         </div>`;
       }).join("")}
     </div>
+    ${levels.length ? `<div class="mp-eff"><span class="mp-el" title="How long the model thinks before it answers">Effort</span><div class="mp-levels">${levels.map((l, n) =>
+      `<button class="mp-lv ${l === effort ? "on" : ""}" data-e="${esc(l)}" style="--n:${n + 1}" title="${esc(effortLabel(l))}"><i></i>${esc(effortLabel(l))}</button>`).join("")}</div></div>` : ""}
     <div class="mp-f">
       ${hasLong ? `<button class="mp-long ${long ? "on" : ""}" title="Use a 1M-token context window where the model supports it"><span class="switch ${long ? "on" : ""}"><i></i></span>1M context</button>` : ""}
       <span class="mp-custom"><input placeholder="Other model ID" spellcheck="false"><span class="mdl">&#xE751;</span></span>
@@ -858,6 +869,7 @@ function modelMenu(tab) {
     closeModelPop();
   };
   pop.querySelector(".mp-def").addEventListener("click", () => pick("", "Default", false));
+  pop.querySelectorAll(".mp-lv").forEach((b) => b.addEventListener("click", () => { setEffort(tab, b.dataset.e); closeModelPop(); }));
   pop.querySelectorAll(".mp-pill").forEach((b) => b.addEventListener("click", () => pick(b.dataset.id, b.dataset.name, b.dataset.long === "1")));
   pop.querySelectorAll(".mp-showall").forEach((b) => b.addEventListener("click", () => { b.parentElement.classList.add("all"); b.remove(); }));
   pop.querySelector(".mp-long")?.addEventListener("click", (e) => {
@@ -881,6 +893,32 @@ function modelMenu(tab) {
   const w = pop.offsetWidth;
   pop.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + "px";
   pop.style.top = Math.max(46, r.top - pop.offsetHeight - 8) + "px";
+}
+
+// ---- thinking effort ----------------------------------------------------------------
+// Levels come with the model list (ChatGPT) or from the running agent
+// ("efforts" event, Claude), keyed by model id, alias or name; "" is the
+// default model. A model without levels shows no effort row.
+
+const effortsBy = {};
+const EFFORT_NAMES = { none: "None", minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max", ultra: "Ultra" };
+const effortLabel = (l) => EFFORT_NAMES[l] || l[0].toUpperCase() + l.slice(1);
+
+function effortLevels(tab, choice) {
+  const models = profile(tab.profile).models || [];
+  const m = models.find((m) => m.id && m.id === (choice || tab.chat.model));
+  if (m?.efforts?.length) return m.efforts;
+  const known = effortsBy[tab.profile];
+  if (!known) return [];
+  return known[choice] || (m && known[m.name]) || [];
+}
+
+function setEffort(tab, level) {
+  const c = tab.chat;
+  c.effort = level;
+  API().ChatControl(tab.id, "effort:" + level).catch((err) => toast(String(err)));
+  sysLine(c, `Effort set to ${effortLabel(level)}`, "ok");
+  renderStatus(tab);
 }
 
 function closeModelPop() {
@@ -978,7 +1016,8 @@ function renderStatus(tab) {
   const r = c.root;
   const known = (profile(tab.profile).models || []).find((m) => m.id && (m.id === c.model || m.id === (c.modelChoice || "").replace(/\[1m\]$/, "")));
   const live = (c.model && (profile(tab.profile).models || []).find((m) => m.id === c.model)?.name) || prettyModel(c.model) || (known && c.modelChoice ? c.modelLabel : "");
-  r.querySelector(".cm-name").textContent = live || c.modelLabel || "Default";
+  const lv = c.effort && effortLevels(tab, (c.modelChoice || "").replace(/\[1m\]$/, "")).includes(c.effort) ? " · " + effortLabel(c.effort).toLowerCase() : "";
+  r.querySelector(".cm-name").textContent = (live || c.modelLabel || "Default") + lv;
   r.querySelector(".sl-ctx").textContent = c.ctx ? `${fmtNum(c.ctx)} context` : "";
   r.querySelector(".sl-folder").textContent = c.folder || "";
 }

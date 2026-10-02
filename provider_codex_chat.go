@@ -99,6 +99,9 @@ func (c *codex) turn(st *ChatState, thread string, input []map[string]any) []byt
 	if m, _ := st.Get("model").(string); m != "" {
 		p["model"] = m
 	}
+	if e, _ := st.Get("effort").(string); e != "" {
+		p["effort"] = e
+	}
 	return rpc(st.Next(), "turn/start", p)
 }
 
@@ -149,6 +152,10 @@ func offers(list []json.RawMessage, s string) bool {
 func (c *codex) ChatControl(st *ChatState, what string) []byte {
 	if m, ok := strings.CutPrefix(what, "model:"); ok {
 		st.Put("model", m) // applies from the next turn
+		return nil
+	}
+	if e, ok := strings.CutPrefix(what, "effort:"); ok {
+		st.Put("effort", e) // applies from the next turn
 		return nil
 	}
 	thread, _ := st.Get("thread").(string)
@@ -235,10 +242,15 @@ func (c *codex) ChatDecode(line []byte, st *ChatState) []Ev {
 			Thread *struct {
 				ID string `json:"id"`
 			} `json:"thread"`
-			Model string `json:"model"`
+			Model  string `json:"model"`
+			Effort string `json:"reasoningEffort"`
 		}
 		if json.Unmarshal(m.Result, &r) == nil && r.Thread != nil && r.Thread.ID != "" {
-			return c.onThread(st, r.Thread.ID, r.Model)
+			evs := c.onThread(st, r.Thread.ID, r.Model)
+			if r.Effort != "" {
+				evs = append(evs, Ev{"k": "effort", "effort": r.Effort})
+			}
+			return evs
 		}
 		return nil
 	}

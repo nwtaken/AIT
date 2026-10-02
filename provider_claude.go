@@ -19,6 +19,7 @@ func (c *claude) Name() string        { return "Claude" }
 func (c *claude) HomeEnv() string     { return "CLAUDE_CONFIG_DIR" }
 func (c *claude) DefaultHome() string { return filepath.Join(c.userHome, ".claude") }
 func (c *claude) PresetsID() bool     { return true }
+func (c *claude) LoginArgs() []string { return []string{"auth", "login"} }
 
 func (c *claude) Command() []string {
 	npm := ""

@@ -266,6 +266,11 @@ func (a *App) ChatControl(id int, what string) error {
 		t.model = m // a handoff relaunches on the same model
 		t.mu.Unlock()
 	}
+	if e, ok := strings.CutPrefix(what, "effort:"); ok {
+		t.mu.Lock()
+		t.effort = e // and the same effort
+		t.mu.Unlock()
+	}
 	t.mu.Lock()
 	st := t.chatState
 	t.mu.Unlock()

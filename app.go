@@ -37,6 +37,7 @@ type Tab struct {
 	launchedAt time.Time //
 	trusted    bool      // the user already trusted cwd in this tab
 	model      string    // model chosen in this tab ("" = default); survives handoffs
+	effort     string    // thinking effort chosen in this tab ("" = default); survives handoffs
 	handover   string    // first message for an AI taking over from another (crossai.go)
 	wait       *time.Timer
 
@@ -412,7 +413,7 @@ func (a *App) Accounts(tabID int) []AccountView {
 		st := a.store.State(acct.ID)
 		switch {
 		case !a.store.signedIn(acct) || st.SignedOut:
-			v.Status, v.Detail = "signed out", "open to sign in"
+			v.Status, v.Detail = "signed out", "sign in"
 		case st.LimitedUntil > now.Unix():
 			v.Status, v.Detail = "limited", "resets "+clock(time.Unix(st.LimitedUntil, 0))
 		}
@@ -472,6 +473,9 @@ func (a *App) launch(t *Tab, acct Account, prompt string) error {
 	}
 	if m != "" && !hasFlag(l.Extra, "--model", "-m") {
 		l.Extra = append(l.Extra, p.ModelArgs(m)...)
+	}
+	if ef, ok := p.(efforter); ok && t.effort != "" {
+		l.Extra = append(l.Extra, ef.EffortArgs(t.effort)...)
 	}
 	if a.store.Config().Access == "everywhere" {
 		l.Extra = append(l.Extra, p.AccessArgs(fixedDrives())...)
