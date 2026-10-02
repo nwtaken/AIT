@@ -158,7 +158,9 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 		for _, e := range evs {
 			switch e["k"] {
 			case "msg":
-				t.working.Store(true)
+				if !t.working.Swap(true) {
+					a.trayTooltip()
+				}
 				turnText.Reset()
 			case "start":
 				textBlocks[e["i"]] = e["type"] == "text"
@@ -170,6 +172,7 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 				}
 			case "done":
 				t.working.Store(false)
+				a.trayTooltip()
 				text := strings.TrimSpace(turnText.String())
 				requestReview = text == reviewMarker
 				turnText.Reset()

@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"log"
 	"path/filepath"
 	goruntime "runtime"
@@ -313,4 +314,30 @@ func panelPage() string {
 	page := read("panel.html")
 	page = strings.Replace(page, "/*AIT_CSS*/", read("style.css")+"\n"+read("chat.css"), 1)
 	return page
+}
+
+// trayTooltip shows on the tray icon which AI is working, if any.
+func (a *App) trayTooltip() {
+	a.mu.Lock()
+	var working []*Tab
+	for _, t := range a.tabs {
+		if t.working.Load() && t.adopted.Load() {
+			working = append(working, t)
+		}
+	}
+	a.mu.Unlock()
+	var names []string
+	for _, t := range working { // t.mu is never taken while holding a.mu
+		t.mu.Lock()
+		names = append(names, t.agent.Name())
+		t.mu.Unlock()
+	}
+	switch len(names) {
+	case 0:
+		systray.SetTooltip("AIT")
+	case 1:
+		systray.SetTooltip("AIT — " + names[0] + " is working")
+	default:
+		systray.SetTooltip(fmt.Sprintf("AIT — %d AIs working", len(names)))
+	}
 }
