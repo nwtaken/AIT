@@ -1123,6 +1123,10 @@ async function boot() {
   RT().EventsOn("tray:open", (on) => { trayOpen = on; trayPush(); });
   RT().EventsOn("tray:settings", openSettings);
   RT().EventsOn("tab:focus", (id) => { if (tabs.has(id)) activate(id); });
+  document.addEventListener("keydown", (e) => { // F3 / Shift+F3: next / previous find match
+    const f = tabs.get(active)?.chat?.find;
+    if (e.key === "F3" && f && !f.bar.hidden) { e.preventDefault(); findStep(tabs.get(active), e.shiftKey ? -1 : 1); }
+  });
   RT().EventsOn("tray:send", (id, text) => {
     const tab = tabs.get(id);
     if (!tab?.native || !tab.chat) return;

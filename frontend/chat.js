@@ -1073,7 +1073,7 @@ function openFind(tab) {
     const bar = document.createElement("div");
     bar.className = "find-bar";
     bar.innerHTML = `<span class="mdl">&#xE721;</span><input spellcheck="false" placeholder="Find in this chat"><span class="fb-n"></span>
-      <button class="fb-prev" title="Previous (Shift+Enter)"><span class="mdl">&#xE70E;</span></button><button class="fb-next" title="Next (Enter)"><span class="mdl">&#xE70D;</span></button><button class="fb-x" title="Close (Esc)"><span class="mdl">&#xE8BB;</span></button>`;
+      <button class="fb-prev" title="Previous (Shift+Enter or Shift+F3)"><span class="mdl">&#xE70E;</span></button><button class="fb-next" title="Next (Enter or F3)"><span class="mdl">&#xE70D;</span></button><button class="fb-x" title="Close (Esc)"><span class="mdl">&#xE8BB;</span></button>`;
     c.root.append(bar);
     const inp = bar.querySelector("input");
     c.find = { bar, inp, ranges: [], at: -1 };
