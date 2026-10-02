@@ -143,6 +143,7 @@ type Chat struct {
 	Title    string `json:"title"`
 	Cwd      string `json:"cwd"`
 	Updated  int64  `json:"updated"` // unix seconds
+	Size     int64  `json:"size"`    // transcript bytes: how much conversation it holds
 	Path     string `json:"-"`
 	Home     string `json:"-"`
 }

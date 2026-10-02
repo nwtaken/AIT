@@ -39,7 +39,7 @@ func cachedChat(p string, read func(string) (Chat, bool)) (Chat, bool) {
 		return e.chat, e.ok
 	}
 	ch, ok := read(p)
-	ch.Updated = info.ModTime().Unix()
+	ch.Updated, ch.Size = info.ModTime().Unix(), info.Size()
 	chatCache.Lock()
 	chatCache.m[p] = chatEntry{size: info.Size(), mod: info.ModTime(), chat: ch, ok: ok}
 	chatCache.Unlock()

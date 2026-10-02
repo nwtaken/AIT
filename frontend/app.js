@@ -875,20 +875,29 @@ function renderHistory() {
     box.innerHTML = `<div class="hempty">${hItems.length ? "No chats match." : "No past chats yet."}</div>`;
     return;
   }
-  hSel = Math.min(hSel, list.length - 1);
+  // Chats holding a lot of conversation come first, as "Important chats".
+  const important = list.filter((c) => c.size >= IMPORTANT_BYTES);
+  const past = list.filter((c) => c.size < IMPORTANT_BYTES);
+  const ordered = important.concat(past);
+  hSel = Math.min(hSel, ordered.length - 1);
+  const section = (name) => box.insertAdjacentHTML("beforeend", `<div class="hsection">${name}</div>`);
+  if (important.length) section("Important chats");
   let group = "";
-  list.forEach((c, i) => {
+  ordered.forEach((c, i) => {
+    if (i === important.length) { section("Past chats"); group = ""; }
     const g = dayGroup(c.updated);
-    if (g !== group) { group = g; box.insertAdjacentHTML("beforeend", `<div class="hgroup">${g}</div>`); }
+    if (i >= important.length && g !== group) { group = g; box.insertAdjacentHTML("beforeend", `<div class="hgroup">${g}</div>`); }
     const b = document.createElement("button");
     b.className = "hrow" + (i === hSel ? " sel" : "");
-    b.innerHTML = `<span class="icon">${icon(c.provider)}</span><span class="t"><b>${esc(c.title)}</b><span>${esc(c.providerName)} · ${esc(c.folder || "")}</span></span><span class="when">${when(c.updated)}</span>`;
+    b.innerHTML = `<span class="icon">${icon(c.provider)}</span><span class="t"><b>${esc(c.title)}</b><span>${esc(c.providerName)} · ${esc(c.folder || "")}</span></span><span class="size">${c.size ? fmtBytes(c.size) : ""}</span><span class="when">${when(c.updated)}</span>`;
     b.addEventListener("click", () => resumeChat(c));
     b.addEventListener("mousemove", () => { if (hSel !== i) { hSel = i; markSel(); } });
     box.append(b);
   });
-  box.list = list;
+  box.list = ordered;
 }
+
+const IMPORTANT_BYTES = 5 * 1024 * 1024; // a chat this big on disk holds a lot of context
 
 function markSel() {
   [...$("#hlist").querySelectorAll(".hrow")].forEach((r, i) => r.classList.toggle("sel", i === hSel));

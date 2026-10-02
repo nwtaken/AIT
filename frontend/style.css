@@ -162,6 +162,8 @@ input { font: inherit; color: inherit; }
 .hlist::-webkit-scrollbar { width: 10px; }
 .hlist::-webkit-scrollbar-thumb { background: #ffffff1c; border-radius: 5px; border: 3px solid var(--flyout); }
 .hgroup { padding: 10px 10px 4px; font-size: 11px; color: var(--muted); }
+.hsection { padding: 12px 10px 2px; font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--accent); }
+.hrow .size { font-size: 11px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hrow { display: flex; align-items: center; gap: 11px; width: 100%; padding: 7px 10px; border-radius: 5px; text-align: left; }
 .hrow:hover, .hrow.sel { background: var(--flyout-hover); }
 .hrow .icon { width: 16px; flex: none; display: grid; place-items: center; }

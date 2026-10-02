@@ -57,6 +57,19 @@ const assert = require("node:assert/strict");
     await page.evaluate(() => { document.querySelector("#historyPanel").hidden = false; document.querySelector("#hq").focus(); });
     await page.keyboard.type("search");
     assert.equal(await page.locator("#hq").inputValue(), "search", "history search keeps input");
+    const hist = await page.evaluate(() => {
+      const now = Date.now() / 1000;
+      hItems = [
+        { provider: "claude", providerName: "Claude", title: "small new", folder: "~", updated: now, size: 300 * 1024 },
+        { provider: "claude", providerName: "Claude", title: "big old", folder: "~", updated: now - 86400 * 9, size: 120 * 1024 * 1024 },
+      ];
+      $("#hq").value = "";
+      renderHistory();
+      return { sections: [...document.querySelectorAll(".hsection")].map((e) => e.textContent), rows: [...document.querySelectorAll(".hrow")].map((r) => r.querySelector("b").textContent + " " + r.querySelector(".size").textContent) };
+    });
+    assert.deepEqual(hist.sections, ["Important chats", "Past chats"], "history has important and past chats");
+    assert.deepEqual(hist.rows, ["big old 120 MB", "small new 300 KB"], "big chats come first, each with its size");
+    await page.evaluate(() => { document.querySelector("#hq").value = "search"; });
     await page.evaluate(() => { document.querySelector("#historyPanel").hidden = true; handoverProgress(tabs.get(1), "reading"); });
     await prompt.focus();
     await page.keyboard.press("Escape");
