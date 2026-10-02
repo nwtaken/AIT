@@ -14,7 +14,7 @@
     !define INFO_PRODUCTNAME "AIT"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "1.3.4"
+    !define INFO_PRODUCTVERSION "1.3.5"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "© 2026 AIT"
