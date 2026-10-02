@@ -180,6 +180,25 @@ const assert = require("node:assert/strict");
     assert.equal(found, "3 of 3", "find counts every match, case-insensitive, starting at the latest");
     assert.deepEqual(stepped, ["1 of 3", 1], "Enter steps to the next match and highlights it");
     assert.deepEqual(closed, [true, false], "Esc closes find and clears the highlights");
+    const reopened = await page.evaluate(async () => {
+      const keep = { openTab, activate, profiles: ui.profiles };
+      const opened = [], fronts = [];
+      ui.profiles = [{ id: "claude", name: "Claude", installed: true, models: [] }, { id: "codex", name: "ChatGPT", installed: false, models: [] }];
+      go.main.App.LastTabs = async () => [
+        { provider: "claude", ref: "a", size: 2000 },
+        { provider: "codex", ref: "gone-ai", size: 10 },
+        { provider: "claude", ref: "big", size: 300 * 1024 * 1024, active: true },
+      ];
+      openTab = async (p, extra) => { opened.push([p, extra.chat, extra.summary]); return { id: 100 + opened.length }; };
+      activate = (id) => fronts.push(id);
+      const any = await reopenTabs();
+      go.main.App.LastTabs = async () => [];
+      const none = await reopenTabs();
+      ({ openTab, activate } = keep); ui.profiles = keep.profiles;
+      return { opened, fronts, any, none };
+    });
+    assert.deepEqual(reopened, { opened: [["claude", "a", false], ["claude", "big", true]], fronts: [102], any: true, none: false },
+      "last time's tabs reopen in order, the active one in front, big ones with their summary, skipping AIs that are gone");
     const sup = await page.evaluate(async () => {
       go.main.App.ToggleReview = async () => true;
       runLocal(tabs.get(1), "/supereview");

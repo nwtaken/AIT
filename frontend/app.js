@@ -343,6 +343,7 @@ function activate(id) {
   const tab = tabs.get(id);
   if (!tab) return;
   active = id;
+  API().SetActiveTab?.(id);
   trayPush();
   for (const t of tabs.values()) {
     t.pane.classList.toggle("active", t.id === id);
@@ -909,6 +910,23 @@ function markSel() {
 
 const HUGE_BYTES = 100 * 1024 * 1024; // drawing a chat this big would slow AIT down
 
+// reopenTabs brings back the AI tabs open when AIT last quit, in order, with
+// the same one in front; very big chats come back with their summary rather
+// than asking about each. Reports whether any tab was reopened.
+async function reopenTabs() {
+  let last = [];
+  try { last = (await API().LastTabs?.()) || []; } catch { last = []; }
+  let front = null, opened = 0;
+  for (const t of last) {
+    if (!ui.profiles.some((p) => p.id === t.provider && p.installed)) continue; // that AI is gone
+    const tab = await openTab(t.provider, { chat: t.ref, summary: t.size >= HUGE_BYTES, size: t.size });
+    opened++;
+    if (t.active) front = tab;
+  }
+  if (front) activate(front.id);
+  return opened > 0;
+}
+
 async function resumeChat(c) {
   let summary = false;
   if (c.size >= HUGE_BYTES) {
@@ -1204,7 +1222,7 @@ async function boot() {
 
   document.body.classList.add("ready");
   if (!ui.settings.onboarded) await runSetup();
-  await openTab(ui.defaultProfile);
+  if (!(await reopenTabs())) await openTab(ui.defaultProfile);
   whatsNew();
 }
 

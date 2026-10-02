@@ -25,6 +25,7 @@ type Settings struct {
 	AutoInstall bool              `json:"autoInstall"` //
 	CrossAI     string            `json:"crossAI"`     // switch | ask | off
 	Notify      bool              `json:"notify"`      // Windows notification when the AI is done in the background
+	ReopenTabs  bool              `json:"reopenTabs"`  // reopen last time's tabs at start
 }
 
 // AgentStatus is one row of the first-run screen: an agent and whether AIT
@@ -52,7 +53,7 @@ func (a *App) GetSettings() Settings {
 	c := a.store.Config()
 	return Settings{Style: c.Style, Theme: c.Theme, Custom: c.Custom, FontSize: c.FontSize, ChatView: c.ChatView,
 		Permissions: c.Permissions, AlwaysOnTop: c.AlwaysOnTop, Prewarm: c.prewarm(),
-		UserName: c.UserName, Models: c.Models, Onboarded: c.Onboarded, Access: c.Access, AutoUpdate: c.autoUpdate(), AutoInstall: c.AutoInstall, CrossAI: c.CrossAI, Notify: c.notify()}
+		UserName: c.UserName, Models: c.Models, Onboarded: c.Onboarded, Access: c.Access, AutoUpdate: c.autoUpdate(), AutoInstall: c.AutoInstall, CrossAI: c.CrossAI, Notify: c.notify(), ReopenTabs: c.reopenTabs()}
 }
 
 // SaveSettings applies what can apply now (always-on-top) and stores the
@@ -78,6 +79,8 @@ func (a *App) SaveSettings(s Settings) {
 	c.Prewarm = &pw
 	n := s.Notify
 	c.Notify = &n
+	rt := s.ReopenTabs
+	c.ReopenTabs = &rt
 	a.store.saveConfig(c)
 	runtime.WindowSetAlwaysOnTop(a.ctx, s.AlwaysOnTop)
 	if !pw || restart {

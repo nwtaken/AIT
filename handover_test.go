@@ -619,3 +619,46 @@ func TestTrimHandoverKeepsLatestSummary(t *testing.T) {
 		t.Fatalf("tail or size wrong: %d bytes", len(out))
 	}
 }
+
+// Open AI tabs with a conversation are saved in order with the active one,
+// survive the quit (closing tabs afterwards cannot empty the list), and come
+// back unless the conversation is gone or reopening is switched off.
+func TestReopenTabs(t *testing.T) {
+	store, _ := newStoreAt(t.TempDir(), t.TempDir())
+	app := NewApp(store)
+	dir := t.TempDir()
+	file := func(name string, n int) string {
+		p := filepath.Join(dir, name)
+		os.WriteFile(p, []byte(strings.Repeat("x", n)), 0o644)
+		return p
+	}
+	mk := func(id int, profile, session string) {
+		tab := &Tab{id: id, agent: registry[profile], profile: profile, session: session}
+		tab.adopted.Store(true)
+		app.tabs[id] = tab
+	}
+	a, gone := file("a.jsonl", 10), file("gone.jsonl", 5)
+	c := file("c.jsonl", 30)
+	mk(3, "codex", c)
+	mk(1, "claude", a)
+	mk(2, "claude", "") // no conversation yet: nothing to reopen
+	mk(4, "claude", gone)
+	app.SetActiveTab(3)
+	app.finalTabsSave()
+	app.Close(1) // closing on the way out must not change the saved list
+	time.Sleep(700 * time.Millisecond)
+	os.Remove(gone)
+
+	got := app.LastTabs()
+	want := []SavedTab{{Provider: "claude", Ref: a, Size: 10}, {Provider: "codex", Ref: c, Size: 30, Active: true}}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	off := false
+	cfg := store.Config()
+	cfg.ReopenTabs = &off
+	store.saveConfig(cfg)
+	if len(app.LastTabs()) != 0 {
+		t.Fatal("tabs reopened with reopening switched off")
+	}
+}

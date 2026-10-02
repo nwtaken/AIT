@@ -84,6 +84,8 @@ type App struct {
 	emit        func(event string, data ...any)
 	allowQuit   atomic.Bool
 	notifiedTab atomic.Int64 // tab of the last notification (notify.go)
+	activeTab   atomic.Int64 // the tab in front, for reopening (tabs.go)
+	tabsSave    tabsSaver    // debounced saving of the open tabs (tabs.go)
 	panel       trayPanel    // the tray icon's status panel (tray.go)
 
 	mu      sync.Mutex
@@ -132,6 +134,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	a.finalTabsSave() // before the tabs are closed below
 	a.killStandby()
 	a.installOnExit()
 	stopTray()
@@ -392,6 +395,7 @@ func (a *App) Close(id int) {
 		}
 	}
 	a.mu.Unlock()
+	a.queueTabsSave()
 
 	t.mu.Lock()
 	t.closed = true
@@ -988,6 +992,7 @@ func (a *App) claim(t *Tab, path string) {
 	}
 	t.session = path
 	a.claims[path] = t.id
+	a.queueTabsSave()
 }
 
 func (a *App) claimedByOthers(id int) map[string]bool {
