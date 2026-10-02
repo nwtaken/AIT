@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -462,5 +463,32 @@ func TestMcpSwitches(t *testing.T) {
 func TestNotifyIconDataSize(t *testing.T) {
 	if n := unsafe.Sizeof(notifyIconData{}); n != 976 {
 		t.Fatalf("NOTIFYICONDATAW is %d bytes, want 976", n)
+	}
+}
+
+// A long conversation is trimmed by the handover writer itself: the first
+// request and the latest work survive, and no character is cut in half.
+func TestWriteHandoverTrimsWholeCharacters(t *testing.T) {
+	root := t.TempDir()
+	store, _ := newStoreAt(root, t.TempDir())
+	app := NewApp(store)
+	var b strings.Builder
+	for i := 0; i < 1200; i++ {
+		msg, _ := json.Marshal(fmt.Sprintf("request %d: %s", i, strings.Repeat("ş—…🙂", 40)))
+		fmt.Fprintf(&b, `{"type":"user","message":{"role":"user","content":%s}}`+"\n", msg)
+	}
+	session := filepath.Join(t.TempDir(), "s.jsonl")
+	os.WriteFile(session, []byte(b.String()), 0o644)
+	tab := &Tab{session: session, cwd: t.TempDir()}
+	p, err := app.writeHandover(tab, registry["claude"], "was switched out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := os.ReadFile(p)
+	if !utf8.Valid(out) || len(out) > handoverLimit+200 {
+		t.Fatalf("handover: %d bytes, valid UTF-8 %v", len(out), utf8.Valid(out))
+	}
+	if !strings.Contains(string(out), "request 0:") || !strings.Contains(string(out), "request 1199:") {
+		t.Fatal("handover lost the first request or the latest work")
 	}
 }

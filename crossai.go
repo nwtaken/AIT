@@ -15,7 +15,12 @@ import (
 // the user asked, the answers, the commands run, the files changed — and the
 // next AI starts a fresh session told to read it and carry on.
 
-const handoverLimit = 60 << 10 // keep handover files readable in one go
+// A handover keeps the start of the conversation (the original request) and
+// the most recent work; the next AI reads it whole, so it is capped.
+const (
+	handoverLimit = 160 << 10
+	handoverHead  = 16 << 10
+)
 
 const handoverContinue = "Continue the user's latest request from the conversation you just reviewed. " +
 	"Resume exactly where work stopped, preserve its constraints, and do not redo completed steps or recap the handover."
@@ -172,10 +177,7 @@ func (a *App) writeHandover(t *Tab, from Provider, reason string) (string, error
 	}
 	text := b.String()
 	if len(text) > handoverLimit {
-		// Keep the start (the original request) and the most recent work.
-		head := text[:8<<10]
-		tail := text[len(text)-(handoverLimit-(8<<10)):]
-		text = head + "\n\n[… earlier part of the conversation left out …]\n\n" + tail
+		text = trimHandover(text)
 	}
 	dir := filepath.Join(a.store.root, "handovers")
 	os.MkdirAll(dir, 0o755)
@@ -186,11 +188,11 @@ func (a *App) writeHandover(t *Tab, from Provider, reason string) (string, error
 // trimHandover keeps the start (the original request) and the most recent
 // work, cutting on line breaks so no character is split in half.
 func trimHandover(text string) string {
-	head := text[:8<<10]
+	head := text[:handoverHead]
 	if i := strings.LastIndexByte(head, '\n'); i > 0 {
 		head = head[:i]
 	}
-	tail := text[len(text)-(handoverLimit-(8<<10)):]
+	tail := text[len(text)-(handoverLimit-handoverHead):]
 	if i := strings.IndexByte(tail, '\n'); i >= 0 {
 		tail = tail[i+1:]
 	}
