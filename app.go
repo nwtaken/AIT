@@ -39,6 +39,7 @@ type Tab struct {
 	model      string    // model chosen in this tab ("" = default); survives handoffs
 	effort     string    // thinking effort chosen in this tab ("" = default); survives handoffs
 	handover   string    // first message for an AI taking over from another (crossai.go)
+	sessionID  string    // id the native chat reported; its transcript may appear later
 	reading    bool      // cross-AI preparation turn; interruption is disabled
 	reviewing  bool      // a second AI is checking the current work
 	wait       *time.Timer
@@ -563,6 +564,7 @@ func (a *App) launch(t *Tab, acct Account, prompt string) error {
 	cfg := a.store.Config()
 	if cp := chatOf(p); cp != nil && cfg.ChatView != "terminal" {
 		t.native = true
+		t.sessionID = ""
 		argv := append(append([]string{}, cmd...), cp.ChatArgs(l, cfg.Permissions)...)
 		if err := a.startChat(t, cp, argv, env, l, cfg.Permissions); err != nil {
 			return fmt.Errorf("could not start %s: %w", p.Name(), err)
@@ -645,22 +647,38 @@ func (a *App) watch(t *Tab, gen int64) {
 		}
 		acct, _ := a.store.Account(t.acct)
 		home := a.store.Home(acct)
-		since, cur := t.launchedAt, t.session
+		since, cur, native, sid := t.launchedAt, t.session, t.native, t.sessionID
 		t.mu.Unlock()
 
-		// Follow a new transcript: the first one for agents that pick their
-		// own id, or a fresh one after /clear.
-		after := since
-		if info, err := os.Stat(cur); err == nil && fileCreated(info).After(after) {
-			after = fileCreated(info)
-		}
-		if newer := t.agent.NewestSession(home, t.cwd, after, a.claimedByOthers(t.id)); newer != "" && newer != cur {
-			t.mu.Lock()
-			if t.gen.Load() == gen {
-				a.claim(t, newer)
+		// A native chat reports its own id, so follow exactly that transcript
+		// (Codex writes it a moment after the id arrives). Guessing by "newest
+		// file" would adopt a reviewer's or another program's conversation.
+		if native {
+			if sid != "" && !fileExists(cur) {
+				if p := t.agent.SessionFile(home, t.cwd, sid); p != "" && p != cur {
+					t.mu.Lock()
+					if t.gen.Load() == gen {
+						a.claim(t, p)
+					}
+					t.mu.Unlock()
+					cur = p
+				}
 			}
-			t.mu.Unlock()
-			cur = newer
+		} else {
+			// Terminal view: follow a new transcript, the first one for agents
+			// that pick their own id, or a fresh one after /clear.
+			after := since
+			if info, err := os.Stat(cur); err == nil && fileCreated(info).After(after) {
+				after = fileCreated(info)
+			}
+			if newer := t.agent.NewestSession(home, t.cwd, after, a.claimedByOthers(t.id)); newer != "" && newer != cur {
+				t.mu.Lock()
+				if t.gen.Load() == gen {
+					a.claim(t, newer)
+				}
+				t.mu.Unlock()
+				cur = newer
+			}
 		}
 		if cur == "" {
 			continue

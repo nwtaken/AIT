@@ -176,6 +176,7 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 				if id, _ := e["session"].(string); id != "" {
 					t.mu.Lock()
 					acct, _ := a.store.Account(t.acct)
+					t.sessionID = id
 					if p := t.agent.SessionFile(a.store.Home(acct), t.cwd, id); p != "" {
 						a.claim(t, p)
 					}

@@ -215,3 +215,57 @@ func TestModelWithoutAccountAndReviewRule(t *testing.T) {
 		t.Fatal("review rule missing with two AIs")
 	}
 }
+
+// Another program's transcript in the same folder (a /supereview reviewer,
+// Claude Code run outside AIT) must not replace the tab's own conversation.
+func TestNativeChatKeepsItsOwnTranscript(t *testing.T) {
+	root, home, cwd := t.TempDir(), t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o644)
+	b, _ := json.Marshal(Config{Accounts: []Account{{ID: "main", Label: "Main"}}, StartingDir: cwd})
+	os.MkdirAll(root, 0o755)
+	os.WriteFile(filepath.Join(root, "config.json"), b, 0o644)
+	t.Setenv("AIT_FAKE_CLI", "1")
+	store, _ := newStoreAt(root, home)
+	cl := registry["claude"].(*claude)
+	registry["claude"] = fakeChat{cl}
+	defer func() { registry["claude"] = cl }()
+	app := NewApp(store)
+	inited := make(chan bool, 8)
+	app.emit = func(name string, d ...any) {
+		if name == "chat:ev" {
+			for _, e := range d[1].([]Ev) {
+				if e["k"] == "init" {
+					inited <- true
+				}
+			}
+		}
+	}
+	if _, err := app.Open(OpenRequest{ID: 1, Profile: "claude", Cols: 80, Rows: 24}); err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close(1)
+	select {
+	case <-inited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no init")
+	}
+	tab := app.tab(1)
+	tab.mu.Lock()
+	own := tab.session
+	tab.mu.Unlock()
+	if own == "" {
+		t.Fatal("tab has no transcript")
+	}
+	acct, _ := store.Account("main")
+	foreign := filepath.Join(cl.projectDir(store.Home(acct), cwd), "someone-else.jsonl")
+	os.MkdirAll(filepath.Dir(foreign), 0o755)
+	os.WriteFile(foreign, []byte("{}\n"), 0o644)
+	time.Sleep(2500 * time.Millisecond) // the watcher ticks every second
+	tab.mu.Lock()
+	got := tab.session
+	tab.mu.Unlock()
+	if got != own {
+		t.Fatalf("tab moved to %s, want %s", got, own)
+	}
+}
