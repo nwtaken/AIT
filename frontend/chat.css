@@ -384,3 +384,9 @@ body.desk .w-tip { border-radius: 16px; font-family: var(--ui); }
 .find-bar button:hover { background: var(--flyout-hover); color: var(--text); }
 ::highlight(find) { background-color: color-mix(in srgb, var(--accent) 30%, transparent); }
 ::highlight(find-now) { background-color: var(--accent); color: var(--bg); }
+
+/* Copy under a finished reply; shows on hover. */
+.turn-actions { display: flex; gap: 4px; margin-top: 4px; opacity: 0; transition: opacity .15s; }
+.turn.ai:hover .turn-actions, .turn-actions:focus-within { opacity: 1; }
+.turn-actions button { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 5px; color: var(--muted); font: 11px var(--ui); cursor: pointer; }
+.turn-actions button:hover { background: var(--soft); color: var(--text); }

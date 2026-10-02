@@ -662,10 +662,28 @@ function setBusy(tab, on, verb) {
   }, 110);
 }
 
+// replyCopy puts a Copy action under a finished reply: its answer (the text
+// of its last message) as the Markdown the AI wrote.
+function replyCopy(c) {
+  const text = [...(c.blocks?.values() || [])].filter((b) => b.type === "text").map((b) => b.target).join("\n\n").trim();
+  if (!text || !c.msg || c.msg.querySelector(".turn-actions")) return;
+  const bar = document.createElement("div");
+  bar.className = "turn-actions";
+  bar.innerHTML = `<button title="Copy this reply as Markdown"><span class="mdl">&#xE8C8;</span><span>Copy</span></button>`;
+  bar.querySelector("button").addEventListener("click", (ev) => {
+    RT().ClipboardSetText(text);
+    const label = ev.currentTarget.lastElementChild;
+    label.textContent = "Copied";
+    setTimeout(() => { label.textContent = "Copy"; }, 1500);
+  });
+  c.msg.append(bar);
+}
+
 function finishTurn(tab, e) {
   const c = tab.chat;
   for (const b of c.blocks.values()) { b.done = true; schedule(tab, b, true); }
   setBusy(tab, false);
+  replyCopy(c);
   if (e.error) errorLine(c, e.error);
   c.msg = null;
   if (tab.id !== active) tab.el?.classList.add("unread");

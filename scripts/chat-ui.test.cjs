@@ -223,6 +223,21 @@ const assert = require("node:assert/strict");
       return r;
     });
     assert.deepEqual(draft, ["half a prompt more", [13, "half a prompt more"]], "a reopened tab gets its unsent text back, and edits keep being saved");
+    const copied = await page.evaluate(() => {
+      const pane = document.createElement("div"); document.body.append(pane);
+      const t7 = { id: 14, native: true, profile: "claude", pane }; tabs.set(14, t7); createChat(t7); hideWelcome(t7.chat, true);
+      chatEvents(t7, [{ k: "user", text: "q" }, { k: "msg", id: "m" }, { k: "start", i: 0, type: "text" }, { k: "delta", i: 0, text: "**Done:** the tray" }, { k: "stop", i: 0 }, { k: "done" }], false);
+      const clip = [];
+      const keep = window.runtime;
+      window.runtime = { ...(keep || {}), ClipboardSetText: (s) => clip.push(s) };
+      const btn = t7.chat.thread.querySelector(".turn-actions button");
+      btn?.click();
+      window.runtime = keep;
+      const r = [clip[0], btn?.lastElementChild.textContent];
+      pane.remove(); tabs.delete(14);
+      return r;
+    });
+    assert.deepEqual(copied, ["**Done:** the tray", "Copied"], "a finished reply can be copied as its Markdown");
     const keysheet = await page.evaluate(() => {
       openShortcuts();
       const r = { open: !$("#keysSheet").hidden, groups: [...document.querySelectorAll("#keysSheet h4")].map((h) => h.textContent), find: [...document.querySelectorAll("#keysSheet .ks-row")].some((x) => x.textContent.includes("Ctrl+F")) };
