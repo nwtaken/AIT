@@ -35,6 +35,7 @@ type Tab struct {
 	closed     bool
 	acct       string    // the account in use
 	session    string    // transcript path being watched
+	draft      string    // unsent text in the page's box, kept with the tabs (tabs.go)
 	priorBytes int64     // transcripts of earlier AIs in this conversation (crossai.go)
 	launchedAt time.Time //
 	trusted    bool      // the user already trusted cwd in this tab

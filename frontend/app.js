@@ -921,6 +921,7 @@ async function reopenTabs() {
     if (!ui.profiles.some((p) => p.id === t.provider && p.installed)) continue; // that AI is gone
     const tab = await openTab(t.provider, { chat: t.ref, summary: t.size >= HUGE_BYTES, size: t.size });
     opened++;
+    if (t.draft && tab?.chat) { tab.chat.ta.value = t.draft; autosize(tab.chat.ta); saveDraft(tab); }
     if (t.active) front = tab;
   }
   if (front) activate(front.id);

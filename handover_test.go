@@ -675,3 +675,19 @@ func TestHistoryMessageTimes(t *testing.T) {
 		t.Fatal("missing time not 0")
 	}
 }
+
+// A tab's unsent text is saved with it and comes back.
+func TestReopenTabsKeepsDraft(t *testing.T) {
+	store, _ := newStoreAt(t.TempDir(), t.TempDir())
+	app := NewApp(store)
+	p := filepath.Join(t.TempDir(), "a.jsonl")
+	os.WriteFile(p, []byte("x"), 0o644)
+	tab := &Tab{id: 1, agent: registry["claude"], profile: "claude", session: p}
+	tab.adopted.Store(true)
+	app.tabs[1] = tab
+	app.SetDraft(1, "half a prompt")
+	app.finalTabsSave()
+	if got := app.LastTabs(); len(got) != 1 || got[0].Draft != "half a prompt" {
+		t.Fatalf("got %+v", got)
+	}
+}

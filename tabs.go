@@ -19,6 +19,7 @@ type SavedTab struct {
 	Ref      string `json:"ref"`  // the conversation's transcript, as History refs it
 	Size     int64  `json:"size"` // for the page: very big chats reopen with their summary
 	Active   bool   `json:"active"`
+	Draft    string `json:"draft,omitempty"` // unsent text in the tab's box
 }
 
 type tabsSaver struct {
@@ -69,12 +70,27 @@ func (a *App) saveOpenTabs() {
 	for _, t := range tabs { // t.mu is never taken while holding a.mu
 		t.mu.Lock()
 		if t.agent != nil && !t.closed && t.adopted.Load() && t.session != "" {
-			out = append(out, SavedTab{Provider: t.profile, Ref: t.session, Active: t.id == active})
+			out = append(out, SavedTab{Provider: t.profile, Ref: t.session, Active: t.id == active, Draft: t.draft})
 		}
 		t.mu.Unlock()
 	}
 	b, _ := json.MarshalIndent(out, "", "  ")
 	os.WriteFile(a.store.tabsPath(), b, 0o644)
+}
+
+// SetDraft keeps the unsent text in a tab's box.
+func (a *App) SetDraft(id int, text string) {
+	t := a.tab(id)
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	changed := t.draft != text
+	t.draft = text
+	t.mu.Unlock()
+	if changed {
+		a.queueTabsSave()
+	}
 }
 
 // SetActiveTab is told by the page which tab is in front.

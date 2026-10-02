@@ -205,6 +205,24 @@ const assert = require("node:assert/strict");
     });
     assert.deepEqual(reopened, { opened: [["claude", "a", false], ["claude", "big", true]], fronts: [102], any: true, none: false },
       "last time's tabs reopen in order, the active one in front, big ones with their summary, skipping AIs that are gone");
+    const draft = await page.evaluate(async () => {
+      const keep = { openTab, profiles: ui.profiles };
+      ui.profiles = [{ id: "claude", name: "Claude", installed: true, models: [] }];
+      const saved = [];
+      go.main.App.SetDraft = async (id, text) => saved.push([id, text]);
+      go.main.App.LastTabs = async () => [{ provider: "claude", ref: "a", size: 1, draft: "half a prompt" }];
+      const pane = document.createElement("div"); document.body.append(pane);
+      const t6 = { id: 13, native: true, profile: "claude", pane }; tabs.set(13, t6); createChat(t6);
+      openTab = async () => t6;
+      await reopenTabs();
+      t6.chat.ta.value += " more"; t6.chat.ta.dispatchEvent(new Event("input"));
+      await new Promise((r) => setTimeout(r, 500));
+      ({ openTab } = keep); ui.profiles = keep.profiles;
+      const r = [t6.chat.ta.value, saved.pop()];
+      pane.remove(); tabs.delete(13);
+      return r;
+    });
+    assert.deepEqual(draft, ["half a prompt more", [13, "half a prompt more"]], "a reopened tab gets its unsent text back, and edits keep being saved");
     const sup = await page.evaluate(async () => {
       go.main.App.ToggleReview = async () => true;
       runLocal(tabs.get(1), "/supereview");

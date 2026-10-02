@@ -72,7 +72,7 @@ function createChat(tab) {
   }, { passive: true });
   c.jump.addEventListener("click", () => { c.stick = true; scrollEnd(c, true); c.jump.hidden = true; });
 
-  c.ta.addEventListener("input", () => { autosize(c.ta); updatePalette(tab); });
+  c.ta.addEventListener("input", () => { autosize(c.ta); updatePalette(tab); saveDraft(tab); });
   c.ta.addEventListener("keydown", (e) => composerKey(e, tab));
   c.ta.addEventListener("paste", (e) => pasteEvent(e, tab), true);
   root.querySelector(".c-send").addEventListener("click", () => submit(tab));
@@ -909,7 +909,7 @@ function submit(tab) {
   hideWelcome(c);
   userTurn(c, text, files, true);
   c.sent.push(text); c.histIdx = -1;
-  c.ta.value = ""; autosize(c.ta);
+  c.ta.value = ""; autosize(c.ta); saveDraft(tab);
   c.files = []; renderChips(tab);
   c.palette.hidden = true;
   if (!c.trust.hidden) hideTrust(c);
@@ -1230,6 +1230,13 @@ async function setModel(tab, id, name) {
   c.model = id;
   sysLine(c, id ? `Model switched to ${name}` : "Model set back to the default", "ok");
   renderStatus(tab);
+}
+
+// The unsent text in a tab's box is kept with its tab, so it is still there
+// when the tab reopens after a restart or an update.
+function saveDraft(tab) {
+  clearTimeout(tab.chat.draftTimer);
+  tab.chat.draftTimer = setTimeout(() => API().SetDraft?.(tab.id, tab.chat.ta.value), 400);
 }
 
 function autosize(ta) {
