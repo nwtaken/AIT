@@ -146,11 +146,13 @@ async function openChatTab(prof, extra) {
   requestAnimationFrame(() => requestAnimationFrame(() => tab.el.classList.remove("enter")));
   createChat(tab);
   activate(id);
+  if (extra.chat) chatLoading(tab, true, extra.size);
   try {
     const info = await API().Open({ id, profile: prof.id, cols: 120, rows: 40, account: extra.account || "", chat: extra.chat || "", model: extra.model || "" });
     if (extra.model) { const m = (prof.models || []).find((x) => x.id === extra.model); tab.chat.modelChoice = extra.model; tab.chat.modelLabel = m?.name || extra.model; }
     chatOpened(tab, info, !!extra.chat, !!extra.summary);
   } catch (err) {
+    chatLoading(tab, false);
     errorLine(tab.chat, String(err));
   }
   updateChrome();
@@ -916,7 +918,7 @@ async function resumeChat(c) {
     summary = r === true;
   }
   closeHistory();
-  await openTab(c.provider, { chat: c.ref, summary });
+  await openTab(c.provider, { chat: c.ref, summary, size: c.size });
 }
 
 function dayGroup(ts) {
@@ -1014,7 +1016,7 @@ function traySnapshot() {
   const ask = pending && { req: pending[0], always: pending[1].always, title: pending[1].el.querySelector(".ak-h b").textContent,
     detail: (pending[1].el.querySelector(".ak-cmd")?.textContent || pending[1].el.querySelector(".ak-d").textContent).slice(0, 200) };
   return {
-    tab: tab?.id || 0, canSend: !!(tab?.native && c && !c.reading), reply, ask,
+    tab: tab?.id || 0, canSend: !!(tab?.native && c && !c.reading && !c.loading), reply, ask,
     vars, theme: root.dataset.theme || "",
     icon: tab ? icon(tab.profile) : "", ai: tab ? profile(tab.profile).name : "AIT", acct: tab?.account || "",
     state, hasChat: !!c, busy: !!(c?.busy || c?.reading), started: c?.busy ? Date.now() - (performance.now() - c.started) : 0, others,

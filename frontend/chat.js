@@ -97,8 +97,10 @@ function chatOpened(tab, info, resumed, summary) {
   c.trust.querySelector(".tb-folder").textContent = c.folder || "this folder";
   if (info.events?.length) chatEvents(tab, info.events, false);
   if (resumed) {
-    (summary ? API().ChatSummary(tab.id) : API().ChatHistory(tab.id)).then((evs) => { if (evs?.length) { hideWelcome(c, true); chatEvents(tab, evs, false); } scrollEnd(c, true); });
-  }
+    (summary ? API().ChatSummary(tab.id) : API().ChatHistory(tab.id))
+      .then((evs) => { if (evs?.length) { hideWelcome(c, true); chatEvents(tab, evs, false); } scrollEnd(c, true); })
+      .finally(() => chatLoading(tab, false));
+  } else chatLoading(tab, false);
   renderStatus(tab);
   if (tab.id === active) c.ta.focus();
 }
@@ -170,9 +172,9 @@ function showWelcome(tab) {
     mine.forEach((x, n) => {
       const b = document.createElement("button");
       b.className = "w-tip";
-      b.innerHTML = `<span class="w-n">${n + 1}</span><span class="w-rt"></span><span class="w-rw">${when(x.updated)}</span>`;
+      b.innerHTML = `<span class="w-n">${n + 1}</span><span class="w-rt"></span><span class="w-rw">${x.size ? fmtBytes(x.size) + " · " : ""}${when(x.updated)}</span>`;
       b.querySelector(".w-rt").textContent = x.title;
-      b.addEventListener("click", () => openTab(x.provider, { chat: x.ref }));
+      b.addEventListener("click", () => resumeChat(x)); // warns first about a very big chat
       box.append(b);
     });
     c.recent = mine;
@@ -746,6 +748,26 @@ function chatProvider(tab, id, name, fromName, reason) {
   renderStatus(tab);
 }
 
+// chatLoading covers a reopened chat while its conversation loads; nothing
+// can be typed or sent until it is drawn.
+function chatLoading(tab, on, size) {
+  const c = tab.chat;
+  c.loading = on;
+  c.loadingEl?.remove();
+  c.loadingEl = null;
+  if (on) {
+    c.loadingEl = document.createElement("div");
+    c.loadingEl.className = "chat-loading";
+    c.loadingEl.innerHTML = `<div class="cl-card" role="status" aria-live="polite"><b>Loading conversation…</b><span></span><progress></progress></div>`;
+    c.loadingEl.querySelector("span").textContent = size ? fmtBytes(size) + (size >= 100 * 1024 * 1024 ? " · this one is big, it can take a moment" : "") : "";
+    c.root.append(c.loadingEl);
+  }
+  for (const sel of [".c-send", ".c-model", ".c-mcp", ".c-attach"]) c.root.querySelector(sel).disabled = on || !!c.reading;
+  c.ta.disabled = on;
+  if (!on && tab.id === active) c.ta.focus();
+  renderStatus(tab);
+}
+
 function handoverProgress(tab, state) {
   const c = tab.chat;
   c.reading = state === "reading";
@@ -832,7 +854,7 @@ function composerKey(e, tab) {
   }
   if (c.welcome && c.recent?.length && !c.ta.value && /^[1-3]$/.test(e.key) && !c.asks.size) {
     const x = c.recent[+e.key - 1];
-    if (x) { e.preventDefault(); openTab(x.provider, { chat: x.ref }); return; }
+    if (x) { e.preventDefault(); resumeChat(x); return; }
   }
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(tab); return; }
   if (e.key === "ArrowUp" && !c.ta.value && c.sent.length) {
@@ -851,7 +873,7 @@ function composerKey(e, tab) {
 
 function submit(tab) {
   const c = tab.chat;
-  if (c.reading) return;
+  if (c.reading || c.loading) return;
   const text = c.ta.value.trim();
   if (!text && !c.files.length) return;
   if (text.startsWith("/") && runLocal(tab, text)) { c.ta.value = ""; autosize(c.ta); return; }

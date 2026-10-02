@@ -120,6 +120,27 @@ const assert = require("node:assert/strict");
     await page.click('.switch[data-name="docs"]');
     assert.ok((await page.evaluate(() => calls)).some((c) => c[0] === "mcp" && c[2] === "docs" && c[3] === false), "a server can be switched off");
     await page.evaluate(() => closeModelPop());
+    const locked = await page.evaluate(() => {
+      const tab = tabs.get(1), c = tab.chat;
+      calls.length = 0;
+      chatLoading(tab, true, 987 * 1024 * 1024);
+      c.ta.disabled = false; c.ta.value = "too early"; submit(tab); // even if the box were usable
+      const r = { overlay: !!c.root.querySelector(".chat-loading"), text: c.root.querySelector(".cl-card span").textContent, sendOff: c.root.querySelector(".c-send").disabled, sent: calls.length, panelCanSend: traySnapshot().canSend };
+      chatLoading(tab, false);
+      c.ta.value = "";
+      return { ...r, after: !c.root.querySelector(".chat-loading") && !c.ta.disabled && !c.root.querySelector(".c-send").disabled };
+    });
+    assert.deepEqual(locked, { overlay: true, text: "987 MB · this one is big, it can take a moment", sendOff: true, sent: 0, panelCanSend: false, after: true }, "a loading chat shows a loading screen and takes no input");
+    await page.evaluate(() => {
+      go.main.App.History = async () => [{ provider: "claude", providerName: "Claude", title: "huge", ref: "r", updated: Date.now() / 1000, size: 987 * 1024 * 1024 }];
+      const pane = document.createElement("div"); document.body.append(pane);
+      const t2 = { id: 7, native: true, profile: "claude", pane }; tabs.set(7, t2); createChat(t2);
+    });
+    await page.waitForSelector(".w-tip .w-rt");
+    await page.evaluate(() => [...document.querySelectorAll(".w-tip")].find((b) => b.textContent.includes("huge")).click());
+    assert.equal(await page.locator("#confirm").isVisible(), true, "a big recent chat warns before opening");
+    assert.match(await page.locator("#ctitle").textContent(), /987 MB/);
+    await page.evaluate(() => { settle(false); tabs.get(7).pane.remove(); tabs.delete(7); });
     // The page's own start-up (not run here) wires #calt to settle("alt").
     const choice = await page.evaluate(() => {
       const b = document.querySelector("#calt");
