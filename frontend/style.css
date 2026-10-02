@@ -282,3 +282,21 @@ body:not(.ready) #bar { transform: translateY(-6px); }
 .ask small { display: block; margin-top: 14px; color: var(--faint); font-size: 11px; }
 :root[data-theme="powershell"] .ask .btn.go { color: #012456; }
 @media (prefers-reduced-motion: reduce) { body, #bar, .ask, .ask .panel { transition: none; animation: none; } }
+
+/* Tray panel: the whole window becomes a small flyout, built from the app's
+   own menu rows so it follows the theme. */
+body.mini > :not(#mini) { display: none !important; }
+#mini { position: fixed; inset: 0; display: flex; flex-direction: column; padding: 4px; background: var(--flyout); border: 1px solid var(--flyout-line); color: var(--text); overflow: hidden; }
+#mini div.mi:hover { background: none; }
+#mini .mn-h .label { font-weight: 600; }
+#mini .mn-icon svg { width: 15px; height: 15px; }
+#mini .mn-acct { max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
+#mini .mn-status { padding: 4px 10px 8px; }
+#mini .mn-state { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+#mini .mn-state .meta { color: var(--muted); font-size: 11px; }
+#mini .mn-bar { width: 100%; height: 6px; accent-color: var(--accent); display: block; }
+#mini .mn-step .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+#mini .mn-step .tool-l { color: var(--text); }
+#mini .mn-m .sl-bar { width: 64px; }
+#mini .mn-m .chip { width: 34px; text-align: right; }
+#mini .mn-act { margin-top: auto; }

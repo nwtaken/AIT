@@ -632,7 +632,8 @@ function profileMenu() {
   }, "-",
     { html: `<span class="icon">${GLYPH.history}</span><span class="label">History</span><span class="key">Ctrl+Shift+H</span>`, run: toggleHistory },
     { html: `<span class="icon">${GLYPH.rules}</span><span class="label">AI rules</span>`, run: () => API().OpenRules() },
-    { html: `<span class="icon">${GLYPH.gear}</span><span class="label">Settings</span><span class="key">Ctrl+,</span>`, run: openSettings });
+    { html: `<span class="icon">${GLYPH.gear}</span><span class="label">Settings</span><span class="key">Ctrl+,</span>`, run: openSettings },
+    { html: `<span class="icon"><span class="mdl">&#xE921;</span></span><span class="label">Hide to tray</span>`, run: () => API().HideToTray() });
   showMenu($("#more"), items, false);
 }
 
@@ -955,6 +956,69 @@ async function confirmQuit() {
   if (ok) API().Quit();
 }
 
+// ---- tray panel ------------------------------------------------------------------
+// Left-clicking the tray icon turns the window into a small status panel.
+
+let miniTimer = 0;
+function miniMode(on) {
+  document.body.classList.toggle("mini", on);
+  $("#mini").hidden = !on;
+  clearInterval(miniTimer);
+  if (!on) return;
+  const row = (a, glyph, label) => `<button class="mi" data-a="${a}"><span class="icon"><span class="mdl">${glyph}</span></span><span class="label">${label}</span></button>`;
+  $("#mini").innerHTML = `
+    <div class="mi mn-h"><span class="icon mn-icon"></span><span class="label mn-ai"></span><span class="chip mn-acct"></span></div>
+    <div class="mn-status"><div class="mn-state"><span class="verb"></span><span class="meta"></span></div><progress class="mn-bar"></progress></div>
+    <div class="mi mn-step"><span class="icon"><span class="tool-dot"></span></span><span class="label"><b class="tool-l"></b> <span class="tool-d"></span></span></div>
+    <div class="mn-meters"></div>
+    <div class="mn-act"><div class="sep"></div>
+      ${row("open", "&#xE8A7;", "Open AIT")}${row("hide", "&#xE921;", "Hide to tray")}${row("settings", "&#xE713;", "Settings")}
+      <div class="sep"></div>${row("quit", "&#xE7E8;", "Quit AIT")}</div>`;
+  $("#mini").querySelectorAll("[data-a]").forEach((b) => b.addEventListener("click", async () => {
+    const a = b.dataset.a;
+    if (a === "hide") return API().HideToTray();
+    await API().ShowApp();
+    if (a === "settings") openSettings();
+    if (a === "quit") confirmQuit();
+  }));
+  renderMini();
+  miniTimer = setInterval(renderMini, 500);
+}
+
+function renderMini() {
+  const m = $("#mini"), tab = tabs.get(active), c = tab?.chat;
+  const others = [...tabs.values()].filter((t) => t !== tab && t.chat?.busy).length;
+  m.querySelector(".mn-icon").innerHTML = tab ? icon(tab.profile) : "";
+  m.querySelector(".mn-ai").textContent = tab ? profile(tab.profile).name : "AIT";
+  m.querySelector(".mn-acct").textContent = tab?.account || "";
+  const busy = !!(c?.busy || c?.reading);
+  const state = !c ? "No AI chat open" : c.reading ? "Reading the handover" : tab.card ? "Waiting for your answer"
+    : c.busy ? (c.verb || "Working") + "…" : "Done";
+  const st = m.querySelector(".mn-state");
+  st.querySelector(".verb").textContent = state;
+  st.querySelector(".meta").textContent = (c?.busy ? secsText(performance.now() - c.started) : "") + (others ? ` · ${others} more working` : "");
+  const bar = m.querySelector(".mn-bar");
+  if (busy) bar.removeAttribute("value"); else bar.value = c ? 1 : 0;
+  const tools = c?.thread.querySelectorAll(".tool-h");
+  const last = tools?.length ? tools[tools.length - 1] : null;
+  const step = m.querySelector(".mn-step");
+  step.hidden = !last;
+  if (last) {
+    step.querySelector(".tool-dot").className = last.querySelector(".tool-dot").className;
+    step.querySelector(".tool-dot").textContent = last.querySelector(".tool-dot").textContent;
+    step.querySelector(".tool-l").textContent = last.querySelector(".tool-l").textContent;
+    step.querySelector(".tool-d").textContent = last.querySelector(".tool-d").textContent;
+  }
+  const q = c?.quota, rows = [];
+  if (q?.five !== undefined) rows.push(["5-hour limit", q.five, q.fiveReset ? "resets in " + untilText(q.fiveReset) : ""]);
+  if (q?.week !== undefined) rows.push(["Weekly limit", q.week, q.weekReset ? "resets " + dayText(q.weekReset) : ""]);
+  if (c?.ctx && c.window) rows.push(["Context", c.ctx / c.window, fmtNum(c.ctx) + " / " + fmtNum(c.window)]);
+  const html = (rows.length ? '<div class="sep"></div>' : "") + rows.map(([l, f, note]) =>
+    `<div class="mi mn-m"><span class="label">${l}<span class="sub">${esc(note)}</span></span>${meter(f)}<span class="chip">${pct(f)}</span></div>`).join("");
+  const box = m.querySelector(".mn-meters");
+  if (box.innerHTML !== html) box.innerHTML = html;
+}
+
 // ---- misc -------------------------------------------------------------------------
 
 function toast(text, ms = 7000) {
@@ -1049,6 +1113,8 @@ async function boot() {
   RT().EventsOn("review:error", (id, message) => { const t = tabs.get(id); if (t?.native) reviewState(t, "error", "", message); });
   RT().EventsOn("tab:notice", (id, text) => { toast(text); updateChrome(); });
   RT().EventsOn("app:close-requested", confirmQuit);
+  RT().EventsOn("tray:mini", miniMode);
+  window.addEventListener("blur", () => { if (document.body.classList.contains("mini")) API().TrayDismiss(); });
   initSignIn();
   setInterval(() => { const t = tabs.get(active); if (t?.native) renderStatus(t); }, 30000); // keeps "resets in" current
   RT().EventsOn("update:available", showUpdate);

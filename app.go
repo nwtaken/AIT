@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -79,6 +80,7 @@ type App struct {
 	store     *Store
 	emit      func(event string, data ...any)
 	allowQuit atomic.Bool
+	tray      trayState // tray icon and status panel (tray.go)
 
 	mu      sync.Mutex
 	tabs    map[int]*Tab
@@ -109,6 +111,7 @@ func (a *App) startup(ctx context.Context) {
 	// The first agent starts now, while the window is still loading.
 	go a.prepareStandby()
 	a.startUpdateChecks()
+	a.startTray()
 	// Warm the history cache once the agent has started; doing it at once
 	// would compete with the agent's own start-up on a small CPU.
 	time.AfterFunc(20*time.Second, func() { a.History() })
@@ -127,6 +130,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 func (a *App) shutdown(ctx context.Context) {
 	a.killStandby()
 	a.installOnExit()
+	systray.Quit()
 	// Lock order is always t.mu then a.mu, so collect first.
 	a.mu.Lock()
 	var tabs []*Tab

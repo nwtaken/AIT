@@ -47,6 +47,7 @@ func main() {
 		},
 		Windows: &windows.Options{
 			Theme:                windows.Dark,
+			WindowClassName:      windowClass,
 			DisableWindowIcon:    false,
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,

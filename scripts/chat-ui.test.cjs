@@ -76,8 +76,13 @@ const assert = require("node:assert/strict");
     for (const key of ["Control+2", "Control+9", "Control+1", "Control+5"]) await page.keyboard.press(key);
     assert.deepEqual(await page.evaluate(() => activated), [2, 3, 1], "Ctrl+digit jumps to tabs");
     assert.equal(await page.locator(".field textarea").inputValue(), "", "Ctrl+digit types nothing");
+    await page.evaluate(() => { tabs.get(1).chat.quota = { five: 0.32, week: 0.1 }; miniMode(true); });
+    assert.equal(await page.locator("#mini .mn-ai").textContent(), "Claude", "tray panel names the AI");
+    assert.equal(await page.locator("#mini .mn-m").count(), 2, "tray panel shows usage");
+    assert.equal(await page.locator("#panes").isVisible().catch(() => false), false, "tray panel hides the app");
+    await page.evaluate(() => miniMode(false));
     assert.deepEqual(errors, []);
-    console.log("Chat UI: focus, selection, controls, handover progress, Escape, model display, and tab keys passed.");
+    console.log("Chat UI: focus, selection, controls, handover progress, Escape, model display, tab keys, and tray panel passed.");
   } finally {
     await browser.close();
   }
