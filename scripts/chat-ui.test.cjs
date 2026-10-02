@@ -98,6 +98,15 @@ const assert = require("node:assert/strict");
     assert.ok(posted.some((m) => m.startsWith("h:")) && posted.includes("hide"), "tray panel reports its height and actions");
     assert.ok(posted.includes('send:{"tab":1,"text":"run the tests"}'), "a prompt typed in the panel is sent");
     assert.ok(posted.includes('ask:{"tab":1,"req":"r9","d":"allow"}'), "a permission can be answered from the panel");
+    await page.evaluate(() => Object.assign(go.main.App, { McpOff: async () => ["elevenlabs"], McpToggle: async (...a) => calls.push(["mcp", ...a]) }));
+    await page.click(".c-mcp");
+    await page.evaluate(() => chatEvents(tabs.get(1), [{ k: "mcp", servers: [{ name: "elevenlabs", status: "connected", tools: 27 }, { name: "docs", status: "connected", tools: 8 }] }], true));
+    await page.waitForSelector('.mcp-row .switch[data-name="docs"]');
+    assert.equal(await page.locator(".mcp-row").count(), 2, "MCP list shows the AI's servers");
+    assert.equal(await page.locator('.switch[data-name="elevenlabs"]').getAttribute("aria-checked"), "false", "a server switched off in AIT shows as off");
+    await page.click('.switch[data-name="docs"]');
+    assert.ok((await page.evaluate(() => calls)).some((c) => c[0] === "mcp" && c[2] === "docs" && c[3] === false), "a server can be switched off");
+    await page.evaluate(() => closeModelPop());
     const snap2 = await page.evaluate(() => traySnapshot());
     assert.equal(snap2.canSend, true, "a native chat can take messages from the panel");
     await panel.close();
@@ -133,7 +142,7 @@ const assert = require("node:assert/strict");
     await page.click(".su-next");
     await page.evaluate(() => setupDone);
     assert.deepEqual(errors, []);
-    console.log("Chat UI: focus, selection, controls, handover progress, Escape, model display, tab keys, tray panel, rules editor, and tool installs passed.");
+    console.log("Chat UI: focus, selection, controls, handover progress, Escape, model display, tab keys, tray panel, MCP list, rules editor, and tool installs passed.");
   } finally {
     await browser.close();
   }

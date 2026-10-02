@@ -1138,7 +1138,7 @@ async function boot() {
 
   document.addEventListener("mousedown", (e) => {
     if (!e.target.closest("#menu, #more, #acct")) hideMenu();
-    if (!e.target.closest("#modelpop, .c-model")) closeModelPop();
+    if (!e.target.closest("#modelpop, .c-model, .c-mcp")) closeModelPop();
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {

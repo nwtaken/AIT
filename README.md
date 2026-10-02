@@ -63,6 +63,8 @@ presets to start from.
 - **Shared memory.** One memory folder every AI reads and adds to, so what one learns the
   others know.
 - **History.** Search and reopen any past conversation (Ctrl+Shift+H).
+- **MCP servers.** The plug button next to the model shows the AI's own MCP servers and their
+  status, with a switch for each; what you switch off stays off in every chat of that AI.
 - **Two looks.** A terminal style and a desktop chat style, Campbell and PowerShell-blue
   themes, or your own colours.
 - **Also a terminal.** PowerShell and Command Prompt tabs, Windows Terminal-style. Ctrl+1–8 jump

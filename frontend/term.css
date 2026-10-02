@@ -282,6 +282,12 @@ body:not(.desk) .sl-folder { margin-left: auto; padding-left: 16px; color: var(-
 .mp-custom input { flex: 1; min-width: 0; border: 0; outline: none; background: none; color: var(--text); font: 11.5px var(--mono); user-select: text; }
 .mp-custom input::placeholder { color: var(--faint); font-family: var(--ui); }
 .mp-custom .mdl { font-size: 10px; color: var(--faint); }
+.mcp-row { cursor: default; }
+.mcp-t { flex: 1; min-width: 0; } .mcp-t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--warn); }
+.mcp-dot.ok { background: var(--ok); } .mcp-dot.bad { background: var(--err); } .mcp-dot.off { background: var(--faint); }
+.mcp-empty { padding: 14px 12px; color: var(--muted); font-size: 12px; }
+.mcp-note { padding: 8px 14px 10px; border-top: 1px solid var(--flyout-line); color: var(--muted); font-size: 11px; }
 body:not(.desk) #modelpop { border-radius: 4px; } body:not(.desk) .mp-pill { border-radius: 3px; font-family: var(--mono); }
 body:not(.desk) .mp-fam, body:not(.desk) .mp-def { border-radius: 3px; }
 body:not(.desk) .mp-levels, body:not(.desk) .mp-lv { border-radius: 3px; } body:not(.desk) .mp-lv { font-family: var(--mono); }

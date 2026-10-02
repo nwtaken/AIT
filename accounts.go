@@ -41,17 +41,18 @@ type Config struct {
 	Permissions    string              `json:"permissions"` // "ask" | "edits" | "never"
 	Style          string              `json:"style"`       // "terminal" | "desktop"
 	AlwaysOnTop    bool                `json:"alwaysOnTop"`
-	Custom         map[string]string   `json:"customTheme"` // bg, fg, accent, …
-	UserName       string              `json:"userName"`    // what agents call the user (from setup)
-	Models         map[string]string   `json:"models"`      // default model per provider; "" = the agent's own default
-	Onboarded      bool                `json:"onboarded"`   // first-run setup done
-	Access         string              `json:"access"`      // "everywhere" (every drive) | "folder" (the working folder only)
-	AutoUpdate     *bool               `json:"autoUpdate"`  // check GitHub for new versions (default on)
-	MemoryDir      string              `json:"memoryDir"`   // shared memory folder; "" = automatic (memory.go)
-	AutoInstall    bool                `json:"autoInstall"` // install a verified update when AIT closes
-	LastVersion    string              `json:"lastVersion"` // the version that last ran (for "what's new")
-	CrossAI        string              `json:"crossAI"`     // when every account is out: "switch" (default) | "ask" | "off"
-	AIOrder        []string            `json:"aiOrder"`     // order to try other AIs in
+	Custom         map[string]string   `json:"customTheme"`      // bg, fg, accent, …
+	UserName       string              `json:"userName"`         // what agents call the user (from setup)
+	Models         map[string]string   `json:"models"`           // default model per provider; "" = the agent's own default
+	Onboarded      bool                `json:"onboarded"`        // first-run setup done
+	Access         string              `json:"access"`           // "everywhere" (every drive) | "folder" (the working folder only)
+	AutoUpdate     *bool               `json:"autoUpdate"`       // check GitHub for new versions (default on)
+	MemoryDir      string              `json:"memoryDir"`        // shared memory folder; "" = automatic (memory.go)
+	AutoInstall    bool                `json:"autoInstall"`      // install a verified update when AIT closes
+	LastVersion    string              `json:"lastVersion"`      // the version that last ran (for "what's new")
+	McpOff         map[string][]string `json:"mcpOff,omitempty"` // MCP servers switched off in AIT, per AI (mcp.go)
+	CrossAI        string              `json:"crossAI"`          // when every account is out: "switch" (default) | "ask" | "off"
+	AIOrder        []string            `json:"aiOrder"`          // order to try other AIs in
 }
 
 func (c Config) aiOrder() []string {

@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
+	"slices"
 	"strings"
+	"time"
 )
 
 // Claude's streaming mode, measured against Claude Code 2.1.286:
@@ -46,6 +49,7 @@ func (c *claude) ChatArgs(l Launch, perm string) []string {
 // ChatStart asks for the model list (with each model's effort levels) and
 // the effort in use; the answers come back as control_responses.
 func (c *claude) ChatStart(st *ChatState, l Launch, perm, cwd string) [][]byte {
+	st.Put("mcpOff", l.McpOff) // switched off once initialize is answered; earlier is ignored
 	return [][]byte{claudeControl("ait-init", map[string]any{"subtype": "initialize"}), claudeSettings()}
 }
 
@@ -105,7 +109,66 @@ func (c *claude) ChatControl(st *ChatState, what string) []byte {
 		req := map[string]any{"subtype": "apply_flag_settings", "settings": map[string]any{"effortLevel": e}}
 		return append(claudeControl(newUUID(), req), claudeSettings()...)
 	}
+	if what == "mcp-status" {
+		return claudeControl("ait-mcp-"+newUUID(), map[string]any{"subtype": "mcp_status"})
+	}
 	return claudeControl(newUUID(), map[string]any{"subtype": "interrupt"})
+}
+
+// claudeMcpOff switches off the servers the user turned off in AIT. A server
+// switched off while still connecting comes back on when it connects, so it
+// waits until none is connecting (status nil = just started), then switches
+// off what is on and checks once more.
+func claudeMcpOff(st *ChatState, status []map[string]any) {
+	off, _ := st.Get("mcpOff").([]string)
+	tries, _ := st.Get("mcpTries").(int)
+	if len(off) == 0 || tries >= 30 {
+		return
+	}
+	st.Put("mcpTries", tries+1)
+	check := func(after time.Duration) {
+		time.AfterFunc(after, func() {
+			st.Send(claudeControl(fmt.Sprintf("ait-mcpcheck-%d", tries), map[string]any{"subtype": "mcp_status"}))
+		})
+	}
+	if status == nil {
+		check(time.Second)
+		return
+	}
+	on := map[string]bool{}
+	for _, s := range status {
+		if s["status"] == "pending" {
+			check(time.Second)
+			return
+		}
+		if s["status"] != "disabled" {
+			on[s["name"].(string)] = true
+		}
+	}
+	toggled := false
+	for _, name := range off {
+		if on[name] {
+			st.Send(claudeControl(newUUID(), map[string]any{"subtype": "mcp_toggle", "serverName": name, "enabled": false}))
+			toggled = true
+		}
+	}
+	if toggled {
+		check(2 * time.Second)
+	}
+}
+
+// McpToggle switches an MCP server in the running chat, then asks for the
+// new list.
+func (c *claude) McpToggle(st *ChatState, name string, on bool) []byte {
+	// Keep the start-up re-check from undoing this.
+	off, _ := st.Get("mcpOff").([]string)
+	off = slices.DeleteFunc(slices.Clone(off), func(n string) bool { return n == name })
+	if !on {
+		off = append(off, name)
+	}
+	st.Put("mcpOff", off)
+	b := claudeControl(newUUID(), map[string]any{"subtype": "mcp_toggle", "serverName": name, "enabled": on})
+	return append(b, claudeControl("ait-mcp-"+newUUID(), map[string]any{"subtype": "mcp_status"})...)
 }
 
 type claudeLine struct {
@@ -196,6 +259,17 @@ func (c *claude) ChatDecode(line []byte, st *ChatState) []Ev {
 		}
 		return toolResults(l.Message.Content)
 	case "control_response":
+		if strings.Contains(string(line), `"ait-init"`) {
+			claudeMcpOff(st, nil)
+		}
+		if strings.Contains(string(line), `"ait-mcpcheck`) {
+			for _, e := range claudeAnswer(line) {
+				if s, ok := e["servers"].([]map[string]any); ok {
+					claudeMcpOff(st, s)
+				}
+			}
+			return nil
+		}
 		return claudeAnswer(line)
 	case "control_request":
 		var r struct {
@@ -460,6 +534,13 @@ func claudeAnswer(line []byte) []Ev {
 				Applied *struct {
 					Effort *string `json:"effort"`
 				} `json:"applied"`
+				McpServers []struct {
+					Name   string            `json:"name"`
+					Status string            `json:"status"`
+					Error  string            `json:"error"`
+					Scope  string            `json:"scope"`
+					Tools  []json.RawMessage `json:"tools"`
+				} `json:"mcpServers"`
 			} `json:"response"`
 		} `json:"response"`
 	}
@@ -481,6 +562,12 @@ func claudeAnswer(line []byte) []Ev {
 			}
 		}
 		return []Ev{{"k": "efforts", "models": levels}}
+	case strings.HasPrefix(r.Response.ID, "ait-mcp"): // ait-mcp-… and ait-mcpcheck-…
+		servers := []map[string]any{}
+		for _, m := range resp.McpServers {
+			servers = append(servers, map[string]any{"name": m.Name, "status": m.Status, "error": m.Error, "scope": m.Scope, "tools": len(m.Tools)})
+		}
+		return []Ev{{"k": "mcp", "servers": servers}}
 	case strings.HasPrefix(r.Response.ID, "ait-settings") && resp.Applied != nil:
 		e := ""
 		if resp.Applied.Effort != nil {

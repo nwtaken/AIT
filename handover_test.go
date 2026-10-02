@@ -422,3 +422,36 @@ func TestGeminiLookupAndAccountFolder(t *testing.T) {
 		t.Fatal("account sign-in not read from its .gemini folder")
 	}
 }
+
+// MCP switches are kept per AI; Codex only gets switches for servers its
+// config has, and its status list hides its own connector bridge.
+func TestMcpSwitches(t *testing.T) {
+	store, _ := newStoreAt(t.TempDir(), t.TempDir())
+	app := NewApp(store)
+	store.setMcpOff("claude", "elevenlabs", true)
+	store.setMcpOff("claude", "gmail", true)
+	store.setMcpOff("claude", "gmail", false)
+	store.setMcpOff("codex", "robloxstudio", true)
+	if got := app.McpOff("claude"); len(got) != 1 || got[0] != "elevenlabs" {
+		t.Fatalf("claude off list: %v", got)
+	}
+	if got := app.McpOff("codex"); len(got) != 1 || got[0] != "robloxstudio" {
+		t.Fatalf("codex off list: %v", got)
+	}
+
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[mcp_servers.robloxstudio]\ncommand = \"cmd\"\n[mcp_servers.robloxstudio.env]\nA = \"1\"\n"), 0o644)
+	if got := (&codex{}).McpKnown(home, []string{"robloxstudio", "gone"}); len(got) != 1 || got[0] != "robloxstudio" {
+		t.Fatalf("known: %v", got)
+	}
+	args := (&codex{}).ChatArgs(Launch{McpOff: []string{"robloxstudio"}}, "ask")
+	if !strings.Contains(strings.Join(args, " "), "-c mcp_servers.robloxstudio.enabled=false") {
+		t.Fatalf("args: %v", args)
+	}
+
+	evs := codexMcp([]byte(`{"data":[{"name":"codex_apps","tools":{"a":{}}},{"name":"one","tools":{"x":{},"y":{}}},{"name":"two","tools":{},"toolsError":"boom"}]}`))
+	servers := evs[0]["servers"].([]map[string]any)
+	if len(servers) != 2 || servers[0]["status"] != "connected" || servers[0]["tools"] != 2 || servers[1]["status"] != "failed" {
+		t.Fatalf("codex status: %v", servers)
+	}
+}

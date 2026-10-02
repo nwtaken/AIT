@@ -28,6 +28,9 @@ import (
 
 func (c *codex) ChatArgs(l Launch, perm string) []string {
 	args := []string{"app-server"}
+	for _, name := range l.McpOff {
+		args = append(args, "-c", "mcp_servers."+name+".enabled=false")
+	}
 	for i := 0; i < len(l.Extra); i++ {
 		switch a := l.Extra[i]; {
 		case a == "-c" && i+1 < len(l.Extra): // rules (developer_instructions) and user config
@@ -165,6 +168,11 @@ func (c *codex) ChatControl(st *ChatState, what string) []byte {
 		st.Put("effort", e) // applies from the next turn
 		return nil
 	}
+	if what == "mcp-status" {
+		id := st.Next()
+		st.Put("mcpID", id)
+		return rpc(id, "mcpServerStatus/list", map[string]any{})
+	}
 	thread, _ := st.Get("thread").(string)
 	turn, _ := st.Get("turn").(string)
 	if thread == "" || turn == "" {
@@ -230,6 +238,9 @@ func (c *codex) ChatDecode(line []byte, st *ChatState) []Ev {
 		id, _ := strconv.Atoi(string(m.ID))
 		if m.Error != nil {
 			return []Ev{{"k": "error", "text": m.Error.Message}}
+		}
+		if mcp, _ := st.Get("mcpID").(int); id == mcp && mcp > 0 {
+			return codexMcp(m.Result)
 		}
 		if init, _ := st.Get("initID").(int); id == init {
 			st.Send(rpc(0, "initialized", nil))
@@ -540,4 +551,31 @@ func (c *codex) ChatHistory(path string) []Ev {
 		return items
 	}
 	return legacy
+}
+
+// codexMcp turns mcpServerStatus/list into the MCP list. codex_apps is
+// Codex's own connector bridge, not a server the user set up.
+func codexMcp(result json.RawMessage) []Ev {
+	var r struct {
+		Data []struct {
+			Name       string                     `json:"name"`
+			Tools      map[string]json.RawMessage `json:"tools"`
+			ToolsError *string                    `json:"toolsError"`
+		} `json:"data"`
+	}
+	json.Unmarshal(result, &r)
+	servers := []map[string]any{}
+	for _, s := range r.Data {
+		if s.Name == "codex_apps" {
+			continue
+		}
+		status, errText := "connected", ""
+		if s.ToolsError != nil && *s.ToolsError != "" {
+			status, errText = "failed", *s.ToolsError
+		} else if len(s.Tools) == 0 {
+			status = "no tools"
+		}
+		servers = append(servers, map[string]any{"name": s.Name, "status": status, "error": errText, "scope": "", "tools": len(s.Tools)})
+	}
+	return []Ev{{"k": "mcp", "servers": servers}}
 }

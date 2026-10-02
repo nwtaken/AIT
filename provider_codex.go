@@ -340,3 +340,22 @@ func (c *codex) readChat(p string) (Chat, bool) {
 	}
 	return ch, ch.Title != "" && ch.ID != ""
 }
+
+var codexMcpHeader = regexp.MustCompile(`(?m)^\[mcp_servers\.([A-Za-z0-9_-]+)\]`)
+
+// McpKnown keeps the names that are [mcp_servers.NAME] tables in the
+// account's config.toml.
+func (c *codex) McpKnown(home string, names []string) []string {
+	b, _ := os.ReadFile(filepath.Join(home, "config.toml"))
+	have := map[string]bool{}
+	for _, m := range codexMcpHeader.FindAllStringSubmatch(string(b), -1) {
+		have[m[1]] = true
+	}
+	var out []string
+	for _, n := range names {
+		if have[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}

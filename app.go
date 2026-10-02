@@ -541,7 +541,10 @@ func (a *App) launch(t *Tab, acct Account, prompt string) error {
 	p.Provision(home, t.cwd, t.trusted)
 	p.ShareMemory(home, t.cwd, a.store.ensureMemory())
 
-	l := Launch{Extra: a.store.Config().Args[p.ID()]}
+	l := Launch{Extra: a.store.Config().Args[p.ID()], McpOff: a.store.Config().McpOff[p.ID()]}
+	if k, ok := p.(mcpKnower); ok {
+		l.McpOff = k.McpKnown(home, l.McpOff)
+	}
 	m := t.model
 	if acct.Model != nil {
 		m = *acct.Model

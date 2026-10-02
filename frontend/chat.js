@@ -41,6 +41,7 @@ function createChat(tab) {
       <div class="composer">
         <span class="prompt">›</span>
         <div class="field"><div class="chips"></div><textarea rows="1" spellcheck="false" placeholder="Message ${esc(name)}   ·   / for commands"></textarea></div>
+        <button class="cbtn c-mcp" title="MCP servers"><span class="mdl">&#xE71B;</span></button>
         <button class="c-model" title="Switch model"><span class="cm-dot"></span><span class="cm-name">Default</span><span class="mdl small">&#xE70D;</span></button>
         <button class="cbtn c-attach" title="Attach files (Ctrl+Shift+O)"><span class="mdl">&#xE723;</span></button>
         <button class="cbtn c-send" title="Send (Enter)"><span class="mdl">&#xE724;</span></button>
@@ -77,6 +78,7 @@ function createChat(tab) {
   root.querySelector(".c-attach").addEventListener("click", attach);
   root.querySelector(".sl-folder").addEventListener("click", () => changeFolder(tab));
   root.querySelector(".c-model").addEventListener("click", (e) => { e.stopPropagation(); $("#menu").hidden ? modelMenu(tab) : hideMenu(); });
+  root.querySelector(".c-mcp").addEventListener("click", (e) => { e.stopPropagation(); const pop = $("#modelpop"); pop.hidden || pop.kind !== "mcp" ? mcpPop(tab) : closeModelPop(); });
   root.querySelector(".tb-trust").addEventListener("click", () => trustFolder(tab));
   root.querySelector(".tb-change").addEventListener("click", () => changeFolder(tab));
   root.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -213,6 +215,10 @@ function chatEvents(tab, evs, live = true) {
       case "effort":
         c.effort = e.effort;
         renderStatus(tab);
+        break;
+      case "mcp":
+        c.mcp = e.servers;
+        if (!$("#modelpop").hidden && $("#modelpop").kind === "mcp" && $("#modelpop").tab === tab) mcpPop(tab, true);
         break;
       case "msg":
         hideWelcome(c, !live);
@@ -988,6 +994,48 @@ function modelMenu(tab) {
   pop.style.top = Math.max(46, r.top - pop.offsetHeight - 8) + "px";
 }
 
+// ---- MCP servers ------------------------------------------------------------------
+// The tab's AI's own MCP servers, as the running chat reports them, with a
+// switch each. What is switched off applies to every chat of that AI.
+
+const MCP_STATUS = { connected: "Connected", failed: "Failed", "needs-auth": "Needs sign-in", pending: "Connecting…", disabled: "Off", "no tools": "No tools" };
+
+async function mcpPop(tab, refresh) {
+  const c = tab.chat, pop = $("#modelpop");
+  if (!refresh) {
+    c.mcp = null;
+    API().ChatControl(tab.id, "mcp-status").catch((err) => toast(String(err)));
+  }
+  const off = new Set(await API().McpOff(tab.profile));
+  const restarts = tab.profile !== "claude";
+  const rows = (c.mcp || []).map((m) => {
+    const isOff = off.has(m.name) || m.status === "disabled";
+    const st = isOff ? "Off" : (MCP_STATUS[m.status] || m.status) + (m.tools && !isOff ? ` · ${m.tools} tool${m.tools === 1 ? "" : "s"}` : "") + (m.error ? ": " + m.error : "");
+    const dot = isOff ? "off" : m.status === "connected" ? "ok" : m.status === "failed" ? "bad" : "warn";
+    return `<div class="mp-def mcp-row"><span class="mcp-dot ${dot}"></span><span class="mcp-t"><b>${esc(m.name)}</b><span>${esc(st)}</span></span>
+      <button class="switch ${isOff ? "" : "on"}" role="switch" aria-checked="${!isOff}" data-name="${esc(m.name)}" title="${isOff ? "Switch on" : "Switch off"}"><i></i></button></div>`;
+  }).join("");
+  pop.innerHTML = `
+    <div class="mp-h"><span class="mp-i">${icon(tab.profile)}</span><b>MCP servers</b><span class="mp-acct">${esc(profile(tab.profile).name)}</span></div>
+    <div class="mp-list">${c.mcp ? rows || '<div class="mcp-empty">No MCP servers set up for this AI.</div>' : '<div class="mcp-empty">Loading…</div>'}</div>
+    <div class="mcp-note">${restarts ? "Switching restarts the chat on the same conversation. " : ""}Applies to every ${esc(profile(tab.profile).name)} chat.</div>`;
+  pop.querySelectorAll(".switch[data-name]").forEach((b) => b.addEventListener("click", async () => {
+    const on = !b.classList.contains("on");
+    b.classList.toggle("on", on);
+    try { await API().McpToggle(tab.id, b.dataset.name, on); } catch (err) { toast(String(err)); b.classList.toggle("on", !on); return; }
+    if (restarts) closeModelPop();
+  }));
+  const chip = c.root.querySelector(".c-mcp");
+  chip.classList.add("open");
+  pop.tab = tab;
+  pop.kind = "mcp";
+  pop.hidden = false;
+  const r = chip.getBoundingClientRect();
+  const w = pop.offsetWidth;
+  pop.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + "px";
+  pop.style.top = Math.max(46, r.top - pop.offsetHeight - 8) + "px";
+}
+
 // ---- thinking effort ----------------------------------------------------------------
 // Levels come with the model list (ChatGPT) or from the running agent
 // ("efforts" event, Claude), keyed by model id, alias or name; "" is the
@@ -1018,7 +1066,9 @@ function closeModelPop() {
   const pop = $("#modelpop");
   if (pop.hidden) return;
   pop.hidden = true;
+  pop.kind = "";
   pop.tab?.chat?.root.querySelector(".c-model")?.classList.remove("open");
+  pop.tab?.chat?.root.querySelector(".c-mcp")?.classList.remove("open");
   if (pop.tab) chatFocus(pop.tab);
 }
 

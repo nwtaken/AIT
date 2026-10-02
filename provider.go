@@ -126,6 +126,7 @@ type Launch struct {
 	ResumeID string
 	Prompt   string   // sent as the first message; "" for none
 	Extra    []string // user's extra arguments from config.json
+	McpOff   []string // MCP servers the user switched off for this AI
 }
 
 // limitHit is a usage-limit or signed-out error found in a transcript.
