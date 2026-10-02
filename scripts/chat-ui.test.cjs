@@ -165,6 +165,21 @@ const assert = require("node:assert/strict");
       return r;
     });
     assert.deepEqual(replayed, { turns: 2000, bar: 1, shown: true }, "a long history is drawn in slices, all of it, with the bar full at the end");
+    await page.evaluate(() => {
+      const pane = document.createElement("div"); pane.style.cssText = "position:fixed;inset:0;display:flex"; document.body.append(pane);
+      const t5 = { id: 12, native: true, profile: "claude", pane }; tabs.set(12, t5); createChat(t5); hideWelcome(t5.chat, true);
+      chatEvents(t5, [{ k: "user", text: "make the Tray icon" }, { k: "msg", id: "x" }, { k: "text", text: "The tray icon is done. Tray tooltip too." }, { k: "done" }], false);
+      openFind(t5);
+    });
+    await page.keyboard.type("tray");
+    const found = await page.evaluate(() => tabs.get(12).chat.find.bar.querySelector(".fb-n").textContent);
+    await page.keyboard.press("Enter");
+    const stepped = await page.evaluate(() => [tabs.get(12).chat.find.bar.querySelector(".fb-n").textContent, CSS.highlights.get("find-now").size]);
+    await page.keyboard.press("Escape");
+    const closed = await page.evaluate(() => { const r = [tabs.get(12).chat.find.bar.hidden, CSS.highlights.has("find")]; tabs.get(12).pane.remove(); tabs.delete(12); return r; });
+    assert.equal(found, "3 of 3", "find counts every match, case-insensitive, starting at the latest");
+    assert.deepEqual(stepped, ["1 of 3", 1], "Enter steps to the next match and highlights it");
+    assert.deepEqual(closed, [true, false], "Esc closes find and clears the highlights");
     const sup = await page.evaluate(async () => {
       go.main.App.ToggleReview = async () => true;
       runLocal(tabs.get(1), "/supereview");

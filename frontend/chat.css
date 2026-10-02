@@ -370,3 +370,14 @@ body.desk .w-tip { border-radius: 16px; font-family: var(--ui); }
 .cl-card span { color: var(--muted); font-size: .92em; }
 .cl-card span:empty { display: none; }
 .cl-card progress { width: 100%; height: 6px; accent-color: var(--accent); margin-top: 4px; }
+
+/* Find in chat (Ctrl+F). */
+.find-bar { position: absolute; top: 8px; right: 16px; z-index: 6; display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 10px; border: 1px solid var(--flyout-line); border-radius: 8px; background: var(--flyout); box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+.find-bar[hidden] { display: none; }
+.find-bar > .mdl { color: var(--muted); }
+.find-bar input { width: 200px; border: 0; outline: none; background: none; color: var(--text); font: inherit; }
+.find-bar .fb-n { min-width: 64px; color: var(--muted); font-size: 11px; text-align: right; white-space: nowrap; }
+.find-bar button { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 5px; color: var(--muted); }
+.find-bar button:hover { background: var(--flyout-hover); color: var(--text); }
+::highlight(find) { background-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+::highlight(find-now) { background-color: var(--accent); color: var(--bg); }

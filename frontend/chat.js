@@ -1057,6 +1057,72 @@ function modelMenu(tab) {
   pop.style.top = Math.max(46, r.top - pop.offsetHeight - 8) + "px";
 }
 
+// ---- find in chat (Ctrl+F) ---------------------------------------------------
+// Every match is highlighted (CSS Custom Highlight API, so focus stays in the
+// box); Enter / Shift+Enter step through them, Esc closes.
+
+function openFind(tab) {
+  const c = tab.chat;
+  if (!c.find) {
+    const bar = document.createElement("div");
+    bar.className = "find-bar";
+    bar.innerHTML = `<span class="mdl">&#xE721;</span><input spellcheck="false" placeholder="Find in this chat"><span class="fb-n"></span>
+      <button class="fb-prev" title="Previous (Shift+Enter)"><span class="mdl">&#xE70E;</span></button><button class="fb-next" title="Next (Enter)"><span class="mdl">&#xE70D;</span></button><button class="fb-x" title="Close (Esc)"><span class="mdl">&#xE8BB;</span></button>`;
+    c.root.append(bar);
+    const inp = bar.querySelector("input");
+    c.find = { bar, inp, ranges: [], at: -1 };
+    inp.addEventListener("input", () => findRun(tab, 0));
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); findStep(tab, e.shiftKey ? -1 : 1); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeFind(tab); }
+    });
+    bar.querySelector(".fb-prev").addEventListener("click", () => findStep(tab, -1));
+    bar.querySelector(".fb-next").addEventListener("click", () => findStep(tab, 1));
+    bar.querySelector(".fb-x").addEventListener("click", () => closeFind(tab));
+  }
+  c.find.bar.hidden = false;
+  c.find.inp.focus();
+  c.find.inp.select();
+  findRun(tab, 0);
+}
+
+function closeFind(tab) {
+  const c = tab.chat;
+  if (!c.find) return;
+  c.find.bar.hidden = true;
+  CSS.highlights?.delete("find"); CSS.highlights?.delete("find-now");
+  c.ta.focus();
+}
+
+function findRun(tab, dir) {
+  const f = tab.chat.find, q = f.inp.value.toLowerCase();
+  f.ranges = [];
+  if (q) {
+    const walk = document.createTreeWalker(tab.chat.thread, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const t = n.data.toLowerCase();
+      for (let i = t.indexOf(q); i >= 0; i = t.indexOf(q, i + q.length)) {
+        const r = new Range(); r.setStart(n, i); r.setEnd(n, i + q.length); f.ranges.push(r);
+      }
+    }
+  }
+  f.at = f.ranges.length ? f.ranges.length - 1 : -1; // start at the latest match
+  CSS.highlights?.set("find", new Highlight(...f.ranges));
+  findStep(tab, dir);
+}
+
+function findStep(tab, dir) {
+  const f = tab.chat.find, n = f.ranges.length;
+  if (n) f.at = (f.at + dir + n) % n;
+  f.bar.querySelector(".fb-n").textContent = f.inp.value ? (n ? `${f.at + 1} of ${n}` : "No matches") : "";
+  if (!n) { CSS.highlights?.delete("find-now"); return; }
+  const r = f.ranges[f.at];
+  CSS.highlights?.set("find-now", new Highlight(r));
+  tab.chat.stick = false;
+  r.startContainer.parentElement?.closest("details:not([open])")?.setAttribute("open", "");
+  r.startContainer.parentElement?.scrollIntoView({ block: "center" });
+}
+
 // ---- MCP servers ------------------------------------------------------------------
 // The tab's AI's own MCP servers, as the running chat reports them, with a
 // switch each. What is switched off applies to every chat of that AI.

@@ -435,6 +435,7 @@ function keys(e, tab) {
     if (k === "-") { zoom(-1); return stop(e); }
     if (k === "0") { zoom(0); return stop(e); }
     if (k === ",") { openSettings(); return stop(e); }
+    if (k === "f" && tab.native) { openFind(tab); return stop(e); }
   }
   return true;
 }
