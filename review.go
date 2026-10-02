@@ -30,6 +30,41 @@ func (a *App) CanReview(id int) bool {
 	return ok
 }
 
+// ToggleReview switches /supereview: while on, the AIs are told they may ask
+// another AI to review their work once they think it is finished. The
+// instruction is part of the rules an AI gets at start, so the tab restarts
+// on the same conversation (carrying on if it was working); other chats get
+// it when they next start.
+func (a *App) ToggleReview(id int) (bool, error) {
+	a.store.mu.Lock()
+	c := a.store.Config()
+	c.Review = !c.Review
+	on := c.Review
+	err := a.store.saveConfig(c)
+	a.store.mu.Unlock()
+	if err != nil {
+		return !on, err
+	}
+	t := a.tab(id)
+	if t == nil {
+		return on, nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	acct, ok := a.store.Account(t.acct)
+	if !ok || t.closed || t.reading || !t.native {
+		return on, nil
+	}
+	prompt := ""
+	if t.working.Load() {
+		prompt = "continue"
+	}
+	return on, a.relaunch(t, acct, prompt)
+}
+
+// ReviewOn reports whether /supereview is switched on.
+func (a *App) ReviewOn() bool { return a.store.Config().Review }
+
 // Review starts one independent review; the current AI keeps the tab.
 func (a *App) Review(id int) error {
 	t := a.tab(id)

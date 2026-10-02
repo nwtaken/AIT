@@ -202,7 +202,7 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 		}
 		evs = a.handoverEvents(t, cp, proc, st, gen, evs)
 		a.chatOut(t, evs)
-		if requestReview && t.gen.Load() == gen {
+		if requestReview && t.gen.Load() == gen && a.store.Config().Review {
 			go func() {
 				if err := a.Review(t.id); err != nil {
 					a.emit("review:error", t.id, err.Error())

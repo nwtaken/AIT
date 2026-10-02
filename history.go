@@ -85,7 +85,7 @@ func (a *App) History() []ChatView {
 	}
 	out := make([]ChatView, 0, len(all))
 	for _, ch := range all {
-		title := strings.Join(strings.Fields(ch.Title), " ")
+		title := strings.Join(strings.Fields(handoverTitle(ch.Title)), " ")
 		if len(title) > 140 {
 			title = cutText(title, 140) + "…"
 		}
@@ -154,4 +154,32 @@ func maskUser(p string) string {
 
 func pickFolder(ctx context.Context, def string) (string, error) {
 	return runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{Title: "Choose a working folder", DefaultDirectory: def})
+}
+
+// handoverTitle names a chat that began as a handover by what it is about:
+// its first message is AIT's handover prompt, which embeds the conversation,
+// so the title becomes that conversation's first request (through nested
+// handovers) and the AI it came from.
+func handoverTitle(first string) string {
+	const lead = "You are taking over a conversation from "
+	if !strings.HasPrefix(first, lead) {
+		return first
+	}
+	from := strings.TrimPrefix(first, lead)
+	if i := strings.IndexAny(from, ",."); i > 0 {
+		from = from[:i]
+	}
+	inner := ""
+	if _, conv, ok := strings.Cut(first, "<conversation>"); ok {
+		if _, rest, ok := strings.Cut(conv, "## User\n\n"); ok {
+			if !strings.HasPrefix(rest, lead) { // a nested handover keeps its whole text
+				rest, _, _ = strings.Cut(rest, "\n\n## ")
+			}
+			inner = handoverTitle(strings.TrimSpace(rest))
+		}
+	}
+	if inner == "" || strings.HasPrefix(inner, "Continued from ") {
+		return "Continued from " + from
+	}
+	return inner + " (continued from " + from + ")"
 }

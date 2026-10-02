@@ -15,7 +15,7 @@ const LOCAL_COMMANDS = [
   { name: "model", desc: "Switch the model" },
   { name: "folder", desc: "Change the working folder" },
   { name: "history", desc: "Open past chats" },
-  { name: "supereview", desc: "Another AI checks your work · 2+ connected accounts required" },
+  { name: "supereview", desc: "Let the AI ask another AI to review its finished work (on/off) · 2+ connected accounts required" },
 ];
 
 marked.setOptions({ gfm: true, breaks: false });
@@ -99,6 +99,7 @@ function chatOpened(tab, info, resumed, summary) {
   if (resumed) {
     (summary ? API().ChatSummary(tab.id) : API().ChatHistory(tab.id))
       .then((evs) => { if (evs?.length) { hideWelcome(c, true); chatEvents(tab, evs, false); } scrollEnd(c, true); })
+      .catch((err) => errorLine(c, "Could not load this conversation: " + err))
       .finally(() => chatLoading(tab, false));
   } else chatLoading(tab, false);
   renderStatus(tab);
@@ -910,18 +911,28 @@ function runLocal(tab, text) {
     case "folder": changeFolder(tab); return true;
     case "history": toggleHistory(); return true;
     case "supereview":
-      API().Review(tab.id).catch((err) => toast(String(err)));
+      // An on/off switch: while on, the AI may ask another AI to review its
+      // work once it thinks it is finished. Nothing happens on its own.
+      API().ToggleReview(tab.id).then((on) => {
+        reviewOn = on;
+        sysLine(tab.chat, on ? "Supereview on: when the AI thinks it's finished, it can ask another AI what to improve. The chat restarts on the same conversation to apply it."
+          : "Supereview off", "ok");
+      }).catch((err) => toast(String(err)));
       return true;
   }
   return false;
 }
+
+let reviewOn = false; // /supereview, read from AIT when the page starts
+window.go?.main?.App?.ReviewOn?.().then((on) => { reviewOn = on; }).catch(() => {});
 
 function updatePalette(tab) {
   const c = tab.chat;
   const v = c.ta.value;
   if (!/^\/\S*$/.test(v)) { c.palette.hidden = true; return; }
   const q = v.slice(1).toLowerCase();
-  const items = [...LOCAL_COMMANDS.map((l) => ({ ...l, local: true, disabled: l.name === "supereview" && !c.reviewAvailable })), ...c.commands.map((n) => ({ name: n, desc: "" }))]
+  const items = [...LOCAL_COMMANDS.map((l) => ({ ...l, local: true, disabled: l.name === "supereview" && !c.reviewAvailable,
+    desc: l.name === "supereview" ? (reviewOn ? "On · " : "Off · ") + l.desc : l.desc })), ...c.commands.map((n) => ({ name: n, desc: "" }))]
     .filter((x) => x.name.toLowerCase().includes(q)).slice(0, 8);
   if (!items.length) { c.palette.hidden = true; return; }
   c.palette.innerHTML = items.map((x) => `<div class="pi ${x.disabled ? "disabled" : ""}"><b>/${esc(x.name)}</b><span>${esc(x.desc || "")}</span>${x.local ? '<i>AIT</i>' : ""}</div>`).join("");

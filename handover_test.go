@@ -200,7 +200,7 @@ func TestSuperReviewUsesDifferentAccountAndReturnsFeedback(t *testing.T) {
 }
 
 // A model picked on an AI with no saved account must not fail, and the
-// review instruction only appears once two different AIs are connected.
+// review instruction only appears with /supereview on and two different AIs.
 func TestModelWithoutAccountAndReviewRule(t *testing.T) {
 	t.Setenv("AIT_FAKE_CLI", "1")
 	store, err := newStoreAt(t.TempDir(), t.TempDir())
@@ -214,8 +214,18 @@ func TestModelWithoutAccountAndReviewRule(t *testing.T) {
 		t.Fatal("review rule offered with one AI")
 	}
 	store.saveConfig(Config{Accounts: []Account{{ID: "a", Provider: "claude"}, {ID: "b", Provider: "codex"}}})
+	if _, text := store.RulesFor(); strings.Contains(text, reviewMarker) {
+		t.Fatal("review rule offered before /supereview is switched on")
+	}
+	app := NewApp(store)
+	if on, err := app.ToggleReview(0); !on || err != nil {
+		t.Fatalf("toggle on: %v %v", on, err)
+	}
 	if _, text := store.RulesFor(); !strings.Contains(text, reviewMarker) {
-		t.Fatal("review rule missing with two AIs")
+		t.Fatal("review rule missing with /supereview on and two AIs")
+	}
+	if on, _ := app.ToggleReview(0); on || app.ReviewOn() {
+		t.Fatal("toggle off did not switch it off")
 	}
 }
 
@@ -528,6 +538,22 @@ func TestSummaryReplay(t *testing.T) {
 	for _, e := range evs {
 		if e["text"] == "old request" {
 			t.Fatal("events before the summary were replayed")
+		}
+	}
+}
+
+// A chat that began as a handover is titled by the original request.
+func TestHandoverTitle(t *testing.T) {
+	inner := "You are taking over a conversation from Claude, which was switched out by the user. The conversation so far is in this file: x\n\n<conversation>\n# Conversation handed over from Claude\n\nClaude was switched out. Working folder: C:/x\n\n## User\n\nfix the tray icon\n\n## Claude\n\ndone\n</conversation>"
+	outer := "You are taking over a conversation from ChatGPT, which ran out of usage. The conversation so far is in this file: y\n\n<conversation>\n# Conversation handed over from ChatGPT\n\n## User\n\n" + inner + "\n\n## ChatGPT\n\nREADY\n</conversation>"
+	for in, want := range map[string]string{
+		"plain request": "plain request",
+		inner:           "fix the tray icon (continued from Claude)",
+		outer:           "fix the tray icon (continued from Claude) (continued from ChatGPT)",
+		"You are taking over a conversation from Gemini, which was switched out.": "Continued from Gemini",
+	} {
+		if got := handoverTitle(in); got != want {
+			t.Errorf("got %q, want %q", got, want)
 		}
 	}
 }

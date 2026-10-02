@@ -71,9 +71,9 @@ func (s *Store) RulesFor() (string, string) {
 	for _, a := range s.Config().Accounts {
 		ais[a.provider().ID()] = true
 	}
-	if len(ais) >= 2 { // a review needs a second, different AI
+	if len(ais) >= 2 && s.Config().Review { // switched on with /supereview; needs a second, different AI
 		text += "\n\n## Optional independent review\n" +
-			"- If another connected AI would materially improve the current work, you may request one independent review. End your turn with exactly [[AIT_SUPEREVIEW]] and nothing else. AIT asks a different AI to compare your work with the user's request, then sends you its feedback. Wait for that feedback before the final answer.\n" +
+			"- When you believe the task is finished, you may ask another AI for help: end your turn with exactly [[AIT_SUPEREVIEW]] and nothing else. AIT asks a different AI to compare your work with the user's request, then sends you its feedback on what to improve. Address it before the final answer.\n" +
 			"- Request a review at most once per user task, and only after there is work to review."
 	}
 	if name := strings.TrimSpace(s.Config().UserName); name != "" {

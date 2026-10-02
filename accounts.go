@@ -37,6 +37,7 @@ type Config struct {
 	Theme          string              `json:"theme"`       // "campbell" | "powershell"
 	Renderer       string              `json:"renderer"`    // "dom" | "webgl"
 	Prewarm        *bool               `json:"prewarm"`     // keep an agent started ahead of time (default on)
+	Review         bool                `json:"review"`      // /supereview: the AI may ask another AI to review its finished work
 	Notify         *bool               `json:"notify"`      // notify when the AI is done while AIT is in the background (default on)
 	ChatView       string              `json:"chatView"`    // "native" | "terminal"
 	Permissions    string              `json:"permissions"` // "ask" | "edits" | "never"

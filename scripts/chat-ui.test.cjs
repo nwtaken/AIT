@@ -141,6 +141,26 @@ const assert = require("node:assert/strict");
     assert.equal(await page.locator("#confirm").isVisible(), true, "a big recent chat warns before opening");
     assert.match(await page.locator("#ctitle").textContent(), /987 MB/);
     await page.evaluate(() => { settle(false); tabs.get(7).pane.remove(); tabs.delete(7); });
+    const failed = await page.evaluate(async () => {
+      Object.assign(go.main.App, { ChatHistory: async () => { throw "transcript unreadable"; }, CanReview: async () => false });
+      const pane = document.createElement("div"); document.body.append(pane);
+      const t3 = { id: 9, native: true, profile: "claude", pane }; tabs.set(9, t3); createChat(t3);
+      chatLoading(t3, true, 5000);
+      chatOpened(t3, { folder: "~" }, true, false);
+      await new Promise((r) => setTimeout(r, 50));
+      const r = { loading: !!t3.chat.root.querySelector(".chat-loading"), error: t3.chat.thread.textContent.includes("Could not load this conversation: transcript unreadable") };
+      pane.remove(); tabs.delete(9);
+      return r;
+    });
+    assert.deepEqual(failed, { loading: false, error: true }, "a failed history load says so instead of looking ready");
+    const sup = await page.evaluate(async () => {
+      go.main.App.ToggleReview = async () => true;
+      runLocal(tabs.get(1), "/supereview");
+      await new Promise((r) => setTimeout(r, 50));
+      return [reviewOn, [...tabs.get(1).chat.thread.querySelectorAll(".sysline")].pop().textContent];
+    });
+    assert.equal(sup[0], true, "/supereview switches review on");
+    assert.match(sup[1], /Supereview on/, "/supereview says it is on, and does nothing else");
     // The page's own start-up (not run here) wires #calt to settle("alt").
     const choice = await page.evaluate(() => {
       const b = document.querySelector("#calt");
