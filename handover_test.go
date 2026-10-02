@@ -372,3 +372,22 @@ func TestSwitchMidTurnContinues(t *testing.T) {
 		t.Fatal("switching after a finished turn sent continue")
 	}
 }
+
+// Saved rules reach agents under the top-priority header; empty rules are off.
+func TestSavedRulesArePriority(t *testing.T) {
+	store, _ := newStoreAt(t.TempDir(), t.TempDir())
+	app := NewApp(store)
+	if err := app.SaveRules("  - Always answer in French.  "); err != nil {
+		t.Fatal(err)
+	}
+	if _, text := store.RulesFor(); !strings.HasPrefix(text, rulesPriority+"- Always answer in French.") {
+		t.Fatalf("rules not first with priority header:\n%.300s", text)
+	}
+	app.SaveRules("")
+	if _, text := store.RulesFor(); strings.Contains(text, "top priority") || app.GetRules().Text != "" {
+		t.Fatalf("empty rules still applied:\n%.300s", text)
+	}
+	if len(app.GetRules().Presets) != 10 {
+		t.Fatalf("want 10 presets, got %d", len(app.GetRules().Presets))
+	}
+}

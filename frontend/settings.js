@@ -73,7 +73,7 @@ function openSettings() {
           ${seg("permissions", s.permissions, [["ask", "Ask me"], ["edits", "Allow edits"], ["never", "Never ask"]])}</div>
         <div class="row"><div><b>Shared memory</b><span>One memory every AI reads and adds to. <code class="st-mem"></code></span></div>
           <span class="st-btns"><button class="btn quiet st-memopen">Open</button><button class="btn quiet st-memchange">Change</button></span></div>
-        <div class="row"><div><b>AI rules</b><span>Instructions every agent gets: short answers, no wasted tokens.</span></div><button class="btn quiet st-rules">Edit rules</button></div>
+        <div class="row"><div><b>AI rules</b><span>Instructions every AI follows first. Pick a preset or write your own.</span></div><button class="btn quiet st-rules">Edit rules</button></div>
         <div class="row"><div><b>Accounts &amp; advanced</b><span>Accounts, extra arguments and other options live in the config file.</span></div><button class="btn quiet st-config">Open config</button></div>
       </section>
       <section>
@@ -147,7 +147,7 @@ function openSettings() {
     ui.settings.models = { ...(ui.settings.models || {}), [sel.dataset.model]: sel.value };
     save();
   }));
-  p.querySelector(".st-rules").addEventListener("click", () => API().OpenRules());
+  p.querySelector(".st-rules").addEventListener("click", () => { closeSettings(); openRules(); });
   API().MemoryFolder().then((d) => { p.querySelector(".st-mem").textContent = d; });
   p.querySelector(".st-memopen").addEventListener("click", () => API().OpenMemory());
   p.querySelector(".st-memchange").addEventListener("click", async () => {
@@ -175,3 +175,50 @@ function closeSettings() {
 }
 
 const settingsOpen = () => !$("#settings").hidden;
+
+// The AI rules editor: rules.md, edited in the app, with presets to start from.
+async function openRules() {
+  hideMenu();
+  const r = await API().GetRules();
+  const p = $("#rulesEd");
+  p.innerHTML = `
+    <div class="st-head"><b>AI rules</b><button class="st-x" title="Close (Esc)"><span class="mdl">&#xE8BB;</span></button></div>
+    <div class="st-body">
+      <p class="rl-note">Every AI follows these rules first, above its own instructions. New chats get them as soon as you save; a running chat gets them at its next restart or account switch.</p>
+      <h4>Presets</h4>
+      <div class="rl-presets">${r.presets.map((x, i) => `<button class="rl-pre" data-i="${i}"><b>${esc(x.name)}</b><span>${esc(x.desc)}</span></button>`).join("")}</div>
+      <h4>Rules</h4>
+      <textarea class="rl-text" spellcheck="false" placeholder="No rules: each AI uses its own behaviour."></textarea>
+    </div>
+    <div class="rl-foot"><span class="rl-state"></span><button class="btn quiet rl-revert">Revert</button><button class="btn go rl-save">Save</button></div>`;
+  const ta = p.querySelector(".rl-text"), state = p.querySelector(".rl-state");
+  let saved = r.text;
+  ta.value = saved;
+  const mark = () => {
+    const dirty = ta.value.trim() !== saved.trim();
+    state.textContent = dirty ? "Unsaved changes" : "Saved";
+    p.querySelector(".rl-save").disabled = !dirty;
+    p.querySelector(".rl-revert").disabled = !dirty;
+    p.querySelectorAll(".rl-pre").forEach((b) => b.classList.toggle("on", r.presets[b.dataset.i].text.trim() === ta.value.trim()));
+  };
+  ta.addEventListener("input", mark);
+  p.querySelectorAll(".rl-pre").forEach((b) => b.addEventListener("click", () => { ta.value = r.presets[b.dataset.i].text; mark(); ta.focus({ preventScroll: true }); }));
+  p.querySelector(".rl-revert").addEventListener("click", () => { ta.value = saved; mark(); });
+  p.querySelector(".rl-save").addEventListener("click", async () => {
+    try { await API().SaveRules(ta.value); saved = ta.value; mark(); toast("AI rules saved.", 3000); }
+    catch (err) { toast(String(err)); }
+  });
+  p.querySelector(".st-x").addEventListener("click", closeRules);
+  mark();
+  p.hidden = false;
+  $("#scrim").hidden = false;
+  ta.focus({ preventScroll: true });
+}
+
+function closeRules() {
+  $("#rulesEd").hidden = true;
+  $("#scrim").hidden = !$("#historyPanel").hidden ? false : $("#confirm").hidden;
+  focusActive();
+}
+
+const rulesOpen = () => !$("#rulesEd").hidden;

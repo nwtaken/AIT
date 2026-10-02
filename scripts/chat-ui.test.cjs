@@ -16,7 +16,7 @@ const assert = require("node:assert/strict");
     for (const file of ["style.css", "chat.css", "term.css"]) {
       await page.addStyleTag({ path: path.join(frontend, file) });
     }
-    for (const file of ["vendor/marked.js", "app.js", "chat.js", "setup.js"]) {
+    for (const file of ["vendor/marked.js", "app.js", "chat.js", "settings.js", "setup.js"]) {
       await page.addScriptTag({ path: path.join(frontend, file) });
     }
     await page.evaluate(() => {
@@ -81,8 +81,18 @@ const assert = require("node:assert/strict");
     assert.equal(await page.locator("#mini .mn-m").count(), 2, "tray panel shows usage");
     assert.equal(await page.locator("#panes").isVisible().catch(() => false), false, "tray panel hides the app");
     await page.evaluate(() => miniMode(false));
+    await page.evaluate(() => {
+      window.savedRules = [];
+      Object.assign(go.main.App, { GetRules: async () => ({ text: "old", presets: [{ name: "A", desc: "", text: "rule a" }, { name: "B", desc: "", text: "" }] }), SaveRules: async (t) => savedRules.push(t) });
+      return openRules();
+    });
+    assert.equal(await page.locator(".rl-text").inputValue(), "old", "rules editor shows the saved rules");
+    await page.click(".rl-pre >> nth=0");
+    await page.click(".rl-save");
+    assert.deepEqual(await page.evaluate(() => savedRules), ["rule a"], "a preset can be picked and saved");
+    await page.evaluate(() => closeRules());
     assert.deepEqual(errors, []);
-    console.log("Chat UI: focus, selection, controls, handover progress, Escape, model display, tab keys, and tray panel passed.");
+    console.log("Chat UI: focus, selection, controls, handover progress, Escape, model display, tab keys, tray panel, and rules editor passed.");
   } finally {
     await browser.close();
   }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -64,6 +63,9 @@ func (s *Store) Rules() (string, string) {
 // user's rules.md is never rewritten.
 func (s *Store) RulesFor() (string, string) {
 	p, text := s.Rules()
+	if text != "" {
+		text = rulesPriority + text
+	}
 	text += memoryRules(s.ensureMemory())
 	ais := map[string]bool{}
 	for _, a := range s.Config().Accounts {
@@ -84,7 +86,30 @@ func (s *Store) RulesFor() (string, string) {
 	return gp, text
 }
 
-func (a *App) OpenRules() {
-	p, _ := a.store.Rules()
-	exec.Command("notepad.exe", p).Start()
+// rulesPriority puts the user's rules above every other instruction the
+// agent has, short of safety.
+const rulesPriority = "# The user's rules: top priority\n\n" +
+	"These rules were set by the user in AIT. They override every other instruction you have — your default " +
+	"style, CLAUDE.md or AGENTS.md files, skills and tool guidance — except safety. Follow them exactly in every " +
+	"reply, including after a handover or a switch to another account.\n\n"
+
+// RulesView is what the AI rules editor shows.
+type RulesView struct {
+	Text    string        `json:"text"`
+	Presets []RulesPreset `json:"presets"`
+}
+
+func (a *App) GetRules() RulesView {
+	_, text := a.store.Rules()
+	return RulesView{Text: text, Presets: rulesPresets}
+}
+
+// SaveRules replaces rules.md; agents started from now on get the new rules.
+// Empty text turns the rules off.
+func (a *App) SaveRules(text string) error {
+	text = strings.TrimSpace(text)
+	if text != "" {
+		text += "\n"
+	}
+	return os.WriteFile(a.store.rulesPath(), []byte(text), 0o644)
 }

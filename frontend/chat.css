@@ -303,6 +303,18 @@ body.desk .w-tip { border-radius: 16px; font-family: var(--ui); }
 /* ==========================================================================
    Settings panel
    ========================================================================== */
+#rulesEd { top: 54px; width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 84px); display: flex; flex-direction: column; overflow: hidden; }
+.rl-note { margin: 10px 0 6px; color: var(--muted); font: 12.5px/1.5 var(--ui); }
+.rl-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: 8px; }
+.rl-pre { display: flex; flex-direction: column; gap: 2px; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--flyout-line); text-align: left; font: 12px/1.35 var(--ui); color: var(--text); cursor: pointer; }
+.rl-pre span { color: var(--muted); font-size: 11px; }
+.rl-pre:hover { border-color: var(--muted); }
+.rl-pre.on { border-color: var(--accent); }
+.rl-text { width: 100%; min-height: 240px; height: 34vh; resize: vertical; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--flyout-line); background: var(--bg); color: var(--text); font: 12.5px/1.5 var(--mono); outline: none; }
+.rl-text:focus { border-color: var(--accent); }
+.rl-foot { display: flex; align-items: center; gap: 8px; padding: 12px 20px 14px; border-top: 1px solid var(--flyout-line); }
+.rl-state { flex: 1; color: var(--muted); font: 12px var(--ui); }
+.rl-foot .btn:disabled { opacity: .45; cursor: default; }
 #settings { top: 54px; width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 84px); display: flex; flex-direction: column; overflow: hidden; }
 .st-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 12px 20px; border-bottom: 1px solid var(--flyout-line); }
 .st-head b { font-size: 15px; }

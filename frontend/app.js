@@ -631,7 +631,7 @@ function profileMenu() {
     keep: true,
   }, "-",
     { html: `<span class="icon">${GLYPH.history}</span><span class="label">History</span><span class="key">Ctrl+Shift+H</span>`, run: toggleHistory },
-    { html: `<span class="icon">${GLYPH.rules}</span><span class="label">AI rules</span>`, run: () => API().OpenRules() },
+    { html: `<span class="icon">${GLYPH.rules}</span><span class="label">AI rules</span>`, run: openRules },
     { html: `<span class="icon">${GLYPH.gear}</span><span class="label">Settings</span><span class="key">Ctrl+,</span>`, run: openSettings },
     { html: `<span class="icon"><span class="mdl">&#xE921;</span></span><span class="label">Hide to tray</span>`, run: () => API().HideToTray() });
   showMenu($("#more"), items, false);
@@ -843,7 +843,7 @@ function setTheme(id) {
 let hItems = [];
 let hSel = 0;
 
-const overlayOpen = () => !$("#historyPanel").hidden || !$("#confirm").hidden || !$("#settings").hidden || !$("#signin").hidden;
+const overlayOpen = () => !$("#historyPanel").hidden || !$("#confirm").hidden || !$("#settings").hidden || !$("#rulesEd").hidden || !$("#signin").hidden;
 
 async function toggleHistory() {
   if (!$("#historyPanel").hidden) { closeHistory(); return; }
@@ -1143,7 +1143,7 @@ async function boot() {
   $("#close").addEventListener("click", confirmQuit);
   $("#drag").addEventListener("dblclick", () => RT().WindowToggleMaximise());
   $("#tabs").addEventListener("dblclick", (e) => { if (e.target.id === "tabs") RT().WindowToggleMaximise(); });
-  $("#scrim").addEventListener("mousedown", () => { if (answer) settle(false); else if (settingsOpen()) closeSettings(); else closeHistory(); });
+  $("#scrim").addEventListener("mousedown", () => { if (answer) settle(false); else if (rulesOpen()) closeRules(); else if (settingsOpen()) closeSettings(); else closeHistory(); });
   $("#cyes").addEventListener("click", () => settle(true));
   // the confirm button reads "Close" for quitting; other questions relabel it
 
@@ -1166,6 +1166,7 @@ async function boot() {
       if (answer) settle(false);
       else if (signing) closeSignIn();
       else if (!$("#modelpop").hidden) closeModelPop();
+      else if (rulesOpen()) closeRules();
       else if (settingsOpen()) closeSettings();
       else if (!$("#historyPanel").hidden) closeHistory();
       else hideMenu();
