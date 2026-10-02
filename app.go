@@ -79,11 +79,12 @@ type Tab struct {
 }
 
 type App struct {
-	ctx       context.Context
-	store     *Store
-	emit      func(event string, data ...any)
-	allowQuit atomic.Bool
-	panel     trayPanel // the tray icon's status panel (tray.go)
+	ctx         context.Context
+	store       *Store
+	emit        func(event string, data ...any)
+	allowQuit   atomic.Bool
+	notifiedTab atomic.Int64 // tab of the last notification (notify.go)
+	panel       trayPanel    // the tray icon's status panel (tray.go)
 
 	mu      sync.Mutex
 	tabs    map[int]*Tab

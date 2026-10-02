@@ -557,3 +557,16 @@ func TestHandoverTitle(t *testing.T) {
 		}
 	}
 }
+
+// A notification remembers its tab, so clicking it can open that tab.
+func TestNotificationRemembersTab(t *testing.T) {
+	store, _ := newStoreAt(t.TempDir(), t.TempDir())
+	app := NewApp(store)
+	app.emit = func(string, ...any) {}
+	tab := &Tab{id: 4, agent: registry["claude"]}
+	tab.adopted.Store(true)
+	app.notifyTab(tab, " finished", " stopped", "done", "")
+	if got := app.notifiedTab.Load(); got != 4 {
+		t.Fatalf("notified tab %d, want 4", got)
+	}
+}

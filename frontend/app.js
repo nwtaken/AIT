@@ -1121,6 +1121,7 @@ async function boot() {
   RT().EventsOn("app:close-requested", confirmQuit);
   RT().EventsOn("tray:open", (on) => { trayOpen = on; trayPush(); });
   RT().EventsOn("tray:settings", openSettings);
+  RT().EventsOn("tab:focus", (id) => { if (tabs.has(id)) activate(id); });
   RT().EventsOn("tray:send", (id, text) => {
     const tab = tabs.get(id);
     if (!tab?.native || !tab.chat) return;

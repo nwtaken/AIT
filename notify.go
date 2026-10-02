@@ -135,6 +135,7 @@ func (a *App) notifyTab(t *Tab, done, failed, text, errText string) {
 	if text == "" {
 		text = "Open AIT to see the result."
 	}
+	a.notifiedTab.Store(int64(t.id))
 	a.notifyBackground(title, text)
 }
 
@@ -151,7 +152,10 @@ func (a *App) openOnNotificationClick() {
 	old, _, _ := procGetWindowLongPtrW.Call(tray, gwlpWndProc)
 	proc := syscall.NewCallback(func(hwnd, msg, wp, lp uintptr) uintptr {
 		if msg == wmTray && lp&0xffff == ninBalloonUserClick {
-			go a.ShowApp()
+			go func() {
+				a.ShowApp()
+				a.emit("tab:focus", int(a.notifiedTab.Load())) // the tab the notification was about
+			}()
 			return 0
 		}
 		r, _, _ := procCallWindowProcW.Call(old, hwnd, msg, wp, lp)
