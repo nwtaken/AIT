@@ -153,6 +153,18 @@ const assert = require("node:assert/strict");
       return r;
     });
     assert.deepEqual(failed, { loading: false, error: true }, "a failed history load says so instead of looking ready");
+    const replayed = await page.evaluate(async () => {
+      const pane = document.createElement("div"); document.body.append(pane);
+      const t4 = { id: 11, native: true, profile: "claude", pane }; tabs.set(11, t4); createChat(t4);
+      const evs = [];
+      for (let i = 0; i < 1000; i++) evs.push({ k: "user", text: "q" + i }, { k: "msg", id: "m" + i }, { k: "text", text: "a" + i }, { k: "done" });
+      chatLoading(t4, true, 1);
+      await replay(t4, evs);
+      const r = { turns: t4.chat.thread.querySelectorAll(".turn").length, bar: t4.chat.loadingEl.querySelector("progress").value, shown: t4.chat.scroll.style.display === "" };
+      chatLoading(t4, false); pane.remove(); tabs.delete(11);
+      return r;
+    });
+    assert.deepEqual(replayed, { turns: 2000, bar: 1, shown: true }, "a long history is drawn in slices, all of it, with the bar full at the end");
     const sup = await page.evaluate(async () => {
       go.main.App.ToggleReview = async () => true;
       runLocal(tabs.get(1), "/supereview");

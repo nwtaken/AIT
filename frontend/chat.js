@@ -98,7 +98,7 @@ function chatOpened(tab, info, resumed, summary) {
   if (info.events?.length) chatEvents(tab, info.events, false);
   if (resumed) {
     (summary ? API().ChatSummary(tab.id) : API().ChatHistory(tab.id))
-      .then((evs) => { if (evs?.length) { hideWelcome(c, true); chatEvents(tab, evs, false); } scrollEnd(c, true); })
+      .then(async (evs) => { if (evs?.length) { hideWelcome(c, true); await replay(tab, evs); } scrollEnd(c, true); })
       .catch((err) => errorLine(c, "Could not load this conversation: " + err))
       .finally(() => chatLoading(tab, false));
   } else chatLoading(tab, false);
@@ -747,6 +747,22 @@ function chatProvider(tab, id, name, fromName, reason) {
   chatDivider(tab, `↻ Continued on ${name} — ${fromName} ${reason}`);
   setBusy(tab, true);
   renderStatus(tab);
+}
+
+// replay draws a conversation in slices, yielding between them, so a long
+// one keeps AIT responsive and the loading bar shows how far it is.
+async function replay(tab, evs) {
+  const c = tab.chat, bar = c.loadingEl?.querySelector("progress");
+  c.scroll.style.display = "none"; // laid out once at the end, not after every slice
+  try {
+    for (let i = 0; i < evs.length; i += 400) {
+      chatEvents(tab, evs.slice(i, i + 400), false);
+      if (bar) bar.value = Math.min(1, (i + 400) / evs.length);
+      if (i + 400 < evs.length) await new Promise((r) => setTimeout(r));
+    }
+  } finally {
+    c.scroll.style.display = "";
+  }
 }
 
 // chatLoading covers a reopened chat while its conversation loads; nothing
