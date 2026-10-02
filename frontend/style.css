@@ -283,20 +283,29 @@ body:not(.ready) #bar { transform: translateY(-6px); }
 :root[data-theme="powershell"] .ask .btn.go { color: #012456; }
 @media (prefers-reduced-motion: reduce) { body, #bar, .ask, .ask .panel { transition: none; animation: none; } }
 
-/* Tray panel: the whole window becomes a small flyout, built from the app's
-   own menu rows so it follows the theme. */
+/* Tray panel: the whole window becomes a small AIT, built from the app's
+   own surfaces (tab row, terminal background, chat font) so it follows the
+   theme and the font settings. */
 body.mini > :not(#mini) { display: none !important; }
-#mini { position: fixed; inset: 0; display: flex; flex-direction: column; padding: 4px; background: var(--flyout); border: 1px solid var(--flyout-line); color: var(--text); overflow: hidden; }
+#mini { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line); color: var(--text); font: 500 var(--fs)/1.6 var(--mono); overflow: hidden; }
+#mini .mi { font: inherit; border-radius: 0; padding: 5px 12px; min-height: 30px; }
+#mini .mi:hover { background: var(--tab-hover); }
 #mini div.mi:hover { background: none; }
-#mini .mn-h .label { font-weight: 600; }
+#mini .mi .icon { color: var(--muted); }
+#mini .sep { background: var(--line); margin: 4px 0; }
+#mini .mn-h { height: 38px; background: var(--row); border-bottom: 1px solid var(--line); }
+#mini .mn-h .label { font-weight: 700; }
 #mini .mn-icon svg { width: 15px; height: 15px; }
-#mini .mn-acct { max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
-#mini .mn-status { padding: 4px 10px 8px; }
+#mini .mn-acct { max-width: 55%; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: inherit; border: 0; padding: 0; background: none; }
+#mini .mn-status { padding: 10px 12px 6px; }
 #mini .mn-state { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-#mini .mn-state .meta { color: var(--muted); font-size: 11px; }
+#mini .mn-state .verb { color: var(--accent); }
+#mini .mn-state .meta { color: var(--muted); }
 #mini .mn-bar { width: 100%; height: 6px; accent-color: var(--accent); display: block; }
 #mini .mn-step .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 #mini .mn-step .tool-l { color: var(--text); }
+#mini .mn-m .label { color: var(--text); }
+#mini .mn-m .sub { font-size: .9em; color: var(--faint); }
 #mini .mn-m .sl-bar { width: 64px; }
-#mini .mn-m .chip { width: 34px; text-align: right; }
+#mini .mn-m .chip { width: 40px; text-align: right; color: var(--muted); font-size: inherit; border: 0; padding: 0; background: none; }
 #mini .mn-act { margin-top: auto; }

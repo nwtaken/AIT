@@ -983,6 +983,16 @@ function miniMode(on) {
   }));
   renderMini();
   miniTimer = setInterval(renderMini, 500);
+  fitMini();
+}
+
+// Size the panel window to its content.
+function fitMini() {
+  const m = $("#mini");
+  m.style.bottom = "auto";
+  const h = Math.ceil(m.getBoundingClientRect().height);
+  m.style.bottom = "";
+  API().TrayFit?.(h);
 }
 
 function renderMini() {
@@ -1016,7 +1026,7 @@ function renderMini() {
   const html = (rows.length ? '<div class="sep"></div>' : "") + rows.map(([l, f, note]) =>
     `<div class="mi mn-m"><span class="label">${l}<span class="sub">${esc(note)}</span></span>${meter(f)}<span class="chip">${pct(f)}</span></div>`).join("");
   const box = m.querySelector(".mn-meters");
-  if (box.innerHTML !== html) box.innerHTML = html;
+  if (box.innerHTML !== html) { box.innerHTML = html; fitMini(); }
 }
 
 // ---- misc -------------------------------------------------------------------------

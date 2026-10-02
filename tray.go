@@ -42,7 +42,6 @@ type windowPlacement struct {
 	Length, Flags, ShowCmd uint32
 	MinPos, MaxPos         [2]int32
 	Normal                 winRect
-	Device                 winRect
 }
 
 type trayState struct {
@@ -128,6 +127,26 @@ func (a *App) TrayPanel() {
 
 	a.emit("tray:mini", true)
 	runtime.WindowSetMinSize(a.ctx, 1, 1)
+	const swShowNormal = 1
+	procShowWindow.Call(h, swShowNormal)
+	a.placePanel(h, miniH)
+	procSetForegroundWindow.Call(h)
+}
+
+// TrayFit sizes the panel to its content (height in DIPs), keeping it
+// anchored above the tray.
+func (a *App) TrayFit(height int) {
+	a.tray.mu.Lock()
+	mini := a.tray.mini
+	a.tray.mu.Unlock()
+	h := mainWindow()
+	if !mini || h == 0 || height < 100 {
+		return
+	}
+	a.placePanel(h, height)
+}
+
+func (a *App) placePanel(h uintptr, height int) {
 	var work winRect
 	const spiGetWorkArea = 0x30
 	procSystemParametersW.Call(spiGetWorkArea, 0, uintptr(unsafe.Pointer(&work)), 0)
@@ -135,13 +154,12 @@ func (a *App) TrayPanel() {
 	if dpi == 0 {
 		dpi = 96
 	}
-	w, ht := int32(miniW*int(dpi)/96), int32(miniH*int(dpi)/96)
+	w, ht := int32(miniW*int(dpi)/96), int32(height*int(dpi)/96)
 	gap := int32(12 * int(dpi) / 96)
-	const swShowNormal, swpShow = 1, 0x0040
-	procShowWindow.Call(h, swShowNormal)
+	ht = min(ht, work.Bottom-work.Top-2*gap)
+	const swpShow = 0x0040
 	hwndTopmost := ^uintptr(0) // HWND_TOPMOST (-1)
 	procSetWindowPos.Call(h, hwndTopmost, uintptr(work.Right-w-gap), uintptr(work.Bottom-ht-gap), uintptr(w), uintptr(ht), swpShow)
-	procSetForegroundWindow.Call(h)
 }
 
 // TrayDismiss closes the panel, putting the window back as it was.
