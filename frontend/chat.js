@@ -90,7 +90,8 @@ function createChat(tab) {
 
 function chatOpened(tab, info, resumed, summary) {
   const c = tab.chat;
-  API().CanReview(tab.id).then((yes) => { c.reviewAvailable = yes; if (!c.palette.hidden) updatePalette(tab); }).catch(() => {});
+  API().CanReview(tab.id).then((yes) => { c.reviewAvailable = yes; renderStatus(tab); if (!c.palette.hidden) updatePalette(tab); }).catch(() => {});
+  API().ReviewOn?.().then((on) => { reviewOn = on; renderStatus(tab); }).catch(() => {});
   restoreModel(tab, info.model || "");
   c.folder = info.folder || "";
   tab.account = info.account || "";
