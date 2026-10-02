@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -458,6 +460,49 @@ func (c *claude) ChatHistory(path string) []Ev {
 		return nil
 	}
 	defer f.Close()
+	return claudeHistory(f)
+}
+
+// ChatHistoryTail replays a transcript from the summary of its last
+// compaction on: a quick scan for that line first, so a huge transcript is
+// not parsed whole. Without a compaction it is the whole history.
+func (c *claude) ChatHistoryTail(path string) []Ev {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	r := bufio.NewReaderSize(f, 1<<20)
+	var at, pos int64
+	for {
+		line, err := r.ReadSlice('\n')
+		if err == bufio.ErrBufferFull { // a long line: read on to its end
+			n := int64(len(line))
+			found := bytes.Contains(line, []byte(`"isCompactSummary":true`))
+			for err == bufio.ErrBufferFull {
+				line, err = r.ReadSlice('\n')
+				n += int64(len(line))
+				found = found || bytes.Contains(line, []byte(`"isCompactSummary":true`))
+			}
+			if found {
+				at = pos
+			}
+			pos += n
+		} else {
+			if bytes.Contains(line, []byte(`"isCompactSummary":true`)) {
+				at = pos
+			}
+			pos += int64(len(line))
+		}
+		if err != nil {
+			break
+		}
+	}
+	f.Seek(at, io.SeekStart)
+	return claudeHistory(f)
+}
+
+func claudeHistory(f io.Reader) []Ev {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	var out []Ev
@@ -467,6 +512,7 @@ func (c *claude) ChatHistory(path string) []Ev {
 			IsMeta    bool   `json:"isMeta"`
 			IsAPIErr  bool   `json:"isApiErrorMessage"`
 			Sidechain bool   `json:"isSidechain"`
+			Compact   bool   `json:"isCompactSummary"`
 			Timestamp string `json:"timestamp"`
 			Message   struct {
 				ID      string          `json:"id"`
@@ -478,6 +524,14 @@ func (c *claude) ChatHistory(path string) []Ev {
 		}
 		switch l.Type {
 		case "user":
+			if l.Compact { // the summary Claude wrote when it compacted the conversation
+				var s string
+				if json.Unmarshal(l.Message.Content, &s) != nil {
+					s = contentText(l.Message.Content)
+				}
+				out = append(out, Ev{"k": "summary", "text": strings.TrimSpace(s)})
+				continue
+			}
 			var s string
 			if json.Unmarshal(l.Message.Content, &s) == nil {
 				if t := strings.TrimSpace(s); t != "" && !strings.HasPrefix(t, "<") {

@@ -120,6 +120,19 @@ const assert = require("node:assert/strict");
     await page.click('.switch[data-name="docs"]');
     assert.ok((await page.evaluate(() => calls)).some((c) => c[0] === "mcp" && c[2] === "docs" && c[3] === false), "a server can be switched off");
     await page.evaluate(() => closeModelPop());
+    // The page's own start-up (not run here) wires #calt to settle("alt").
+    const choice = await page.evaluate(() => {
+      const b = document.querySelector("#calt");
+      b.addEventListener("click", () => settle("alt"));
+      const p = ask("This chat is big (987 MB)", "…", "Open with summary", "Show everything");
+      const label = !b.hidden && b.textContent;
+      b.click();
+      return p.then((v) => [v, label]);
+    });
+    assert.deepEqual(choice, ["alt", "Show everything"], "the big-chat warning offers a third choice");
+    await page.evaluate(() => chatEvents(tabs.get(1), [{ k: "summary", text: "This session is being continued from a previous conversation.\n\nSummary:\n1. Built the **map**" }], false));
+    assert.match(await page.locator(".summary-card .md").innerHTML(), /<strong>map<\/strong>/, "the AI's summary is shown as a card");
+    assert.doesNotMatch(await page.locator(".summary-card .md").textContent(), /being continued/, "the card drops the continuation boilerplate");
     const snap2 = await page.evaluate(() => traySnapshot());
     assert.equal(snap2.canSend, true, "a native chat can take messages from the panel");
     await panel.close();

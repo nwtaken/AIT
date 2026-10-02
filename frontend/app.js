@@ -149,7 +149,7 @@ async function openChatTab(prof, extra) {
   try {
     const info = await API().Open({ id, profile: prof.id, cols: 120, rows: 40, account: extra.account || "", chat: extra.chat || "", model: extra.model || "" });
     if (extra.model) { const m = (prof.models || []).find((x) => x.id === extra.model); tab.chat.modelChoice = extra.model; tab.chat.modelLabel = m?.name || extra.model; }
-    chatOpened(tab, info, !!extra.chat);
+    chatOpened(tab, info, !!extra.chat, !!extra.summary);
   } catch (err) {
     errorLine(tab.chat, String(err));
   }
@@ -904,9 +904,19 @@ function markSel() {
   $("#hlist").querySelectorAll(".hrow")[hSel]?.scrollIntoView({ block: "nearest" });
 }
 
+const HUGE_BYTES = 100 * 1024 * 1024; // drawing a chat this big would slow AIT down
+
 async function resumeChat(c) {
+  let summary = false;
+  if (c.size >= HUGE_BYTES) {
+    const r = await ask(`This chat is big (${fmtBytes(c.size)})`,
+      "Showing all of it would slow AIT down. Open it with the AI's summary of the earlier conversation and only the latest messages? The AI still has the whole conversation either way.",
+      "Open with summary", "Show everything");
+    if (!r) return;
+    summary = r === true;
+  }
   closeHistory();
-  await openTab(c.provider, { chat: c.ref });
+  await openTab(c.provider, { chat: c.ref, summary });
 }
 
 function dayGroup(ts) {
@@ -933,8 +943,11 @@ function when(ts) {
 
 let answer = null;
 
-function ask(title, body, yes) {
+// ask resolves true (yes), false (cancel) or "alt" (the optional third choice).
+function ask(title, body, yes, alt) {
   hideMenu();
+  $("#calt").hidden = !alt;
+  $("#calt").textContent = alt || "";
   $("#cyes").textContent = yes || (title.startsWith("Close") ? "Close" : "Continue");
   $("#cyes").classList.toggle("primary", title.startsWith("Close"));
   $("#cyes").classList.toggle("go", !title.startsWith("Close"));
@@ -1136,6 +1149,7 @@ async function boot() {
   // the confirm button reads "Close" for quitting; other questions relabel it
 
   $("#cno").addEventListener("click", () => settle(false));
+  $("#calt").addEventListener("click", () => settle("alt"));
 
   $("#hq").addEventListener("input", () => { hSel = 0; renderHistory(); });
   $("#hq").addEventListener("keydown", (e) => {

@@ -500,3 +500,34 @@ func TestClaudeContextUsage(t *testing.T) {
 		t.Fatalf("got %v", evs)
 	}
 }
+
+// A big chat replays from the AI's last compaction summary, found by a quick
+// scan (even past lines longer than the read buffer), with only the latest
+// events after it.
+func TestSummaryReplay(t *testing.T) {
+	var b strings.Builder
+	line := func(v any) { j, _ := json.Marshal(v); b.Write(j); b.WriteByte('\n') }
+	user := func(s string) {
+		line(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": s}})
+	}
+	user("old request")
+	user(strings.Repeat("x", 3<<20)) // longer than the scanner's read buffer
+	line(map[string]any{"type": "user", "isCompactSummary": true, "message": map[string]any{"role": "user", "content": "This session is being continued from a previous conversation.\n\nSummary: built the map"}})
+	for i := 0; i < summaryKeep+50; i++ {
+		user(fmt.Sprintf("later %d", i))
+	}
+	p := filepath.Join(t.TempDir(), "s.jsonl")
+	os.WriteFile(p, []byte(b.String()), 0o644)
+	evs := summarize(visibleHistory((&claude{}).ChatHistoryTail(p)))
+	if evs[0]["k"] != "summary" || !strings.Contains(evs[0]["text"].(string), "built the map") {
+		t.Fatalf("does not start with the summary: %v", evs[0])
+	}
+	if evs[1]["k"] != "note" || evs[len(evs)-1]["text"] != fmt.Sprintf("later %d", summaryKeep+49) || len(evs) > summaryKeep+2 {
+		t.Fatalf("latest events not kept: %d events, second %v", len(evs), evs[1])
+	}
+	for _, e := range evs {
+		if e["text"] == "old request" {
+			t.Fatal("events before the summary were replayed")
+		}
+	}
+}

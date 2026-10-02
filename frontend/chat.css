@@ -356,3 +356,10 @@ body.desk .w-tip { border-radius: 16px; font-family: var(--ui); }
 .st-note { color: var(--faint); font-size: 11px; margin: 10px 0 0; }
 
 @media (prefers-reduced-motion: reduce) { .chat *, .welcome *, #settings * { animation: none !important; transition: none !important; } }
+
+/* The AI's own summary of a compacted conversation (big chats open with it). */
+.summary-card { margin: 10px 0 14px; border: 1px solid var(--line); border-left: 2px solid var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--text) 3%, transparent); }
+.summary-card > summary { padding: 8px 12px; cursor: pointer; color: var(--text); font-weight: 600; list-style: none; display: flex; align-items: center; gap: 8px; }
+.summary-card > summary em { font-style: normal; font-weight: 400; color: var(--muted); }
+.summary-card > summary .mdl { color: var(--accent); }
+.summary-card .md { padding: 0 14px 10px; }

@@ -351,6 +351,51 @@ func (a *App) ChatHistory(id int) []Ev {
 	return visibleHistory(cp.ChatHistory(path))
 }
 
+// summaryKeep is how many events after the summary a big chat shows.
+const summaryKeep = 300
+
+// ChatSummary is ChatHistory for a very big chat: the summary the AI wrote
+// when it last compacted the conversation, then only the latest events. The
+// AI itself still resumes the whole conversation.
+func (a *App) ChatSummary(id int) []Ev {
+	t := a.tab(id)
+	if t == nil {
+		return []Ev{}
+	}
+	t.mu.Lock()
+	cp, path := chatOf(t.agent), t.session
+	t.mu.Unlock()
+	if tail, ok := cp.(interface{ ChatHistoryTail(string) []Ev }); ok && path != "" && fileExists(path) {
+		return summarize(visibleHistory(tail.ChatHistoryTail(path)))
+	}
+	return summarize(a.ChatHistory(id))
+}
+
+func summarize(evs []Ev) []Ev {
+	start := 0
+	var out []Ev
+	for i := len(evs) - 1; i >= 0; i-- {
+		if evs[i]["k"] == "summary" {
+			start = i + 1
+			out = append(out, evs[i])
+			break
+		}
+	}
+	rest := evs[start:]
+	if len(rest) > summaryKeep {
+		cut := len(rest) - summaryKeep
+		for i := cut; i < len(rest); i++ { // start at a message of the user's when there is one
+			if rest[i]["k"] == "user" {
+				cut = i
+				break
+			}
+		}
+		out = append(out, Ev{"k": "note", "text": fmt.Sprintf("%d earlier items hidden to keep AIT fast; the AI still has them", cut)})
+		rest = rest[cut:]
+	}
+	return append(out, rest...)
+}
+
 // TrustFolder records that the user lets agents work in this tab's folder.
 func (a *App) TrustFolder(id int) {
 	if t := a.tab(id); t != nil {

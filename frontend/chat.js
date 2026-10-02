@@ -87,7 +87,7 @@ function createChat(tab) {
   return c;
 }
 
-function chatOpened(tab, info, resumed) {
+function chatOpened(tab, info, resumed, summary) {
   const c = tab.chat;
   API().CanReview(tab.id).then((yes) => { c.reviewAvailable = yes; if (!c.palette.hidden) updatePalette(tab); }).catch(() => {});
   restoreModel(tab, info.model || "");
@@ -97,7 +97,7 @@ function chatOpened(tab, info, resumed) {
   c.trust.querySelector(".tb-folder").textContent = c.folder || "this folder";
   if (info.events?.length) chatEvents(tab, info.events, false);
   if (resumed) {
-    API().ChatHistory(tab.id).then((evs) => { if (evs?.length) { hideWelcome(c, true); chatEvents(tab, evs, false); } scrollEnd(c, true); });
+    (summary ? API().ChatSummary(tab.id) : API().ChatHistory(tab.id)).then((evs) => { if (evs?.length) { hideWelcome(c, true); chatEvents(tab, evs, false); } scrollEnd(c, true); });
   }
   renderStatus(tab);
   if (tab.id === active) c.ta.focus();
@@ -289,6 +289,9 @@ function chatEvents(tab, evs, live = true) {
         break;
       case "cmdout":
         cmdOut(c, e.text, live);
+        break;
+      case "summary":
+        summaryCard(c, e.text);
         break;
       case "note":
         sysLine(c, e.text + (e.pre ? ` · ${fmtNum(Math.round(e.pre))} → ${fmtNum(Math.round(e.post))} tokens` : ""), "ok");
@@ -670,6 +673,17 @@ function cmdOut(c, text, live) {
 }
 
 // A one-line confirmation in the conversation (model switched, compacted …).
+// The summary the AI wrote when it compacted the conversation: what it keeps
+// of everything before this point.
+function summaryCard(c, text) {
+  const el = document.createElement("details");
+  el.className = "summary-card";
+  el.open = true;
+  el.innerHTML = `<summary><span class="mdl">&#xE8BC;</span> Summary of the earlier conversation <em>written by the AI when it compacted</em></summary><div class="md"></div>`;
+  el.querySelector(".md").innerHTML = marked.parse(text.replace(/^This session is being continued[^\n]*\n+/, ""));
+  c.thread.append(el);
+}
+
 function sysLine(c, text, kind) {
   const el = document.createElement("div");
   el.className = "sysline anim" + (kind ? " " + kind : "");
