@@ -165,11 +165,26 @@ func trimHandover(text string) string {
 	if i := strings.LastIndexByte(head, '\n'); i > 0 {
 		head = head[:i]
 	}
-	tail := text[len(text)-(handoverLimit-handoverHead):]
+	// The AI's latest compaction summary is what it knew of everything
+	// before; keep it even when it falls in the part left out.
+	summary := ""
+	tailLen := handoverLimit - handoverHead
+	if i := strings.LastIndex(text, "## Summary of the earlier conversation\n\n"); i > handoverHead && i < len(text)-tailLen {
+		summary = text[i:]
+		if j := strings.Index(summary[len("## Summary"):], "\n## "); j >= 0 {
+			summary = summary[:len("## Summary")+j]
+		}
+		if len(summary) > 48<<10 {
+			summary = cutText(summary, 48<<10) + "…"
+		}
+		summary = strings.TrimSpace(summary) + "\n\n"
+		tailLen = max(tailLen-len(summary), 32<<10)
+	}
+	tail := text[len(text)-tailLen:]
 	if i := strings.IndexByte(tail, '\n'); i >= 0 {
 		tail = tail[i+1:]
 	}
-	return head + "\n\n[… earlier part of the conversation left out …]\n\n" + tail
+	return head + "\n\n[… earlier part of the conversation left out …]\n\n" + summary + tail
 }
 
 // conversationMarkdown writes a tab's conversation as markdown: the user's

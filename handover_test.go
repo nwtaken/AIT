@@ -604,3 +604,18 @@ func TestExportChat(t *testing.T) {
 		}
 	}
 }
+
+// A trimmed handover keeps the AI's latest compaction summary even when it
+// lies in the part that is left out.
+func TestTrimHandoverKeepsLatestSummary(t *testing.T) {
+	filler := strings.Repeat("## User\n\nmore work\n\n", 4000)
+	text := "# Conversation\n\n" + filler + "## Summary of the earlier conversation\n\nSUMMARY-OLD\n\n" + filler +
+		"## Summary of the earlier conversation\n\nSUMMARY-LATEST\n\n" + filler + filler + "## User\n\nthe latest request\n\n"
+	out := trimHandover(text)
+	if !strings.Contains(out, "SUMMARY-LATEST") || strings.Contains(out, "SUMMARY-OLD") {
+		t.Fatal("latest summary not kept (or an older one kept)")
+	}
+	if !strings.HasSuffix(out, "the latest request\n\n") || len(out) > handoverLimit+1024 || !utf8.ValidString(out) {
+		t.Fatalf("tail or size wrong: %d bytes", len(out))
+	}
+}
