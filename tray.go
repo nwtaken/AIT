@@ -190,6 +190,12 @@ func (a *App) endMini(restore bool) {
 		} else if !restore && saved.ShowCmd == 2 { // was minimised, now opened
 			saved.ShowCmd = 1
 		}
+		if saved.ShowCmd == 1 { // open: put size and position back directly
+			r := saved.Normal
+			const swpShow, swpNoZOrder = 0x0040, 0x0004
+			procSetWindowPos.Call(h, 0, uintptr(r.Left), uintptr(r.Top), uintptr(r.Right-r.Left), uintptr(r.Bottom-r.Top), swpShow|swpNoZOrder)
+			return
+		}
 		procSetWindowPlacement.Call(h, uintptr(unsafe.Pointer(&saved)))
 	}
 }
