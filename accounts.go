@@ -37,6 +37,7 @@ type Config struct {
 	Theme          string              `json:"theme"`       // "campbell" | "powershell"
 	Renderer       string              `json:"renderer"`    // "dom" | "webgl"
 	Prewarm        *bool               `json:"prewarm"`     // keep an agent started ahead of time (default on)
+	Notify         *bool               `json:"notify"`      // notify when the AI is done while AIT is in the background (default on)
 	ChatView       string              `json:"chatView"`    // "native" | "terminal"
 	Permissions    string              `json:"permissions"` // "ask" | "edits" | "never"
 	Style          string              `json:"style"`       // "terminal" | "desktop"
@@ -65,6 +66,7 @@ func (c Config) aiOrder() []string {
 func (c Config) autoUpdate() bool { return c.AutoUpdate == nil || *c.AutoUpdate }
 
 func (c Config) prewarm() bool { return c.Prewarm == nil || *c.Prewarm }
+func (c Config) notify() bool  { return c.Notify == nil || *c.Notify }
 
 // acctState is what AIT learned at runtime. It lives in state.json so it
 // never clobbers an edit the user has open in config.json.

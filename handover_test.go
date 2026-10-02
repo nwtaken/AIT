@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+	"unsafe"
 )
 
 type chatSink struct {
@@ -453,5 +454,13 @@ func TestMcpSwitches(t *testing.T) {
 	servers := evs[0]["servers"].([]map[string]any)
 	if len(servers) != 2 || servers[0]["status"] != "connected" || servers[0]["tools"] != 2 || servers[1]["status"] != "failed" {
 		t.Fatalf("codex status: %v", servers)
+	}
+}
+
+// The notification struct must match NOTIFYICONDATAW exactly, or Windows
+// reads the title and text from the wrong place.
+func TestNotifyIconDataSize(t *testing.T) {
+	if n := unsafe.Sizeof(notifyIconData{}); n != 976 {
+		t.Fatalf("NOTIFYICONDATAW is %d bytes, want 976", n)
 	}
 }

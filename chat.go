@@ -170,8 +170,19 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 				}
 			case "done":
 				t.working.Store(false)
-				requestReview = strings.TrimSpace(turnText.String()) == reviewMarker
+				text := strings.TrimSpace(turnText.String())
+				requestReview = text == reviewMarker
 				turnText.Reset()
+				if !requestReview {
+					errText, _ := e["error"].(string)
+					a.notifyTab(t, " finished", " stopped", text, errText)
+				}
+			case "ask":
+				desc, _ := e["desc"].(string)
+				if desc == "" {
+					desc, _ = e["tool"].(string)
+				}
+				a.notifyTab(t, " needs your permission", "", desc, "")
 			case "quota":
 				a.store.SetQuota(t.acctID(), e)
 			case "init":

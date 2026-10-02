@@ -51,6 +51,7 @@ function openSettings() {
       <section>
         <h4>Window</h4>
         <div class="row"><div><b>Always on top</b><span>AIT stays above other windows, even when you click elsewhere.</span></div>${toggleCtl("alwaysOnTop", s.alwaysOnTop)}</div>
+        <div class="row"><div><b>Notifications</b><span>A Windows notification when the AI finishes or needs you while AIT is in the background.</span></div>${toggleCtl("notify", s.notify)}</div>
         <div class="row"><div><b>Keep an agent ready</b><span>Starts the next agent in the background so new tabs open instantly. Uses one extra process.</span></div>${toggleCtl("prewarm", s.prewarm)}</div>
       </section>
       <section>
