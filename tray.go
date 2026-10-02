@@ -83,6 +83,7 @@ func (a *App) startTray() {
 			// Either button toggles the panel, as tray widgets do.
 			systray.SetOnClick(func(systray.IMenu) { a.togglePanel() })
 			systray.SetOnRClick(func(systray.IMenu) { a.togglePanel() })
+			a.openOnNotificationClick()
 		}, func() { close(trayGone) })
 	}()
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"strings"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -18,6 +19,9 @@ var (
 	procFlashWindowEx      = user32.NewProc("FlashWindowEx")
 	procFindWindowExNotify = user32.NewProc("FindWindowExW")
 	procWindowPID          = user32.NewProc("GetWindowThreadProcessId")
+	procGetWindowLongPtrW  = user32.NewProc("GetWindowLongPtrW")
+	procSetWindowLongPtrW  = user32.NewProc("SetWindowLongPtrW")
+	procCallWindowProcW    = user32.NewProc("CallWindowProcW")
 )
 
 // notifyIconData is NOTIFYICONDATAW (976 bytes on 64-bit); the tray
@@ -132,4 +136,26 @@ func (a *App) notifyTab(t *Tab, done, failed, text, errText string) {
 		text = "Open AIT to see the result."
 	}
 	a.notifyBackground(title, text)
+}
+
+// openOnNotificationClick makes a click on AIT's notification open AIT. The
+// tray library ignores that click, so its window's messages pass through
+// here first.
+func (a *App) openOnNotificationClick() {
+	tray := ownWindow("SystrayClass")
+	if tray == 0 {
+		return
+	}
+	const gwlpWndProc = ^uintptr(3) // -4
+	const wmTray, ninBalloonUserClick = 0x0400 + 1, 0x0400 + 5
+	old, _, _ := procGetWindowLongPtrW.Call(tray, gwlpWndProc)
+	proc := syscall.NewCallback(func(hwnd, msg, wp, lp uintptr) uintptr {
+		if msg == wmTray && lp&0xffff == ninBalloonUserClick {
+			go a.ShowApp()
+			return 0
+		}
+		r, _, _ := procCallWindowProcW.Call(old, hwnd, msg, wp, lp)
+		return r
+	})
+	procSetWindowLongPtrW.Call(tray, gwlpWndProc, proc)
 }
