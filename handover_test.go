@@ -492,3 +492,11 @@ func TestWriteHandoverTrimsWholeCharacters(t *testing.T) {
 		t.Fatal("handover lost the first request or the latest work")
 	}
 }
+
+// Claude's get_context_usage answer becomes the context readout.
+func TestClaudeContextUsage(t *testing.T) {
+	evs := claudeAnswer([]byte(`{"type":"control_response","response":{"subtype":"success","request_id":"ait-ctx","response":{"totalTokens":17710,"maxTokens":1000000}}}`))
+	if len(evs) != 1 || evs[0]["k"] != "ctx" || evs[0]["ctx"] != 17710 || evs[0]["window"] != 1000000 {
+		t.Fatalf("got %v", evs)
+	}
+}

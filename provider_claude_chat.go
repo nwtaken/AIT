@@ -50,7 +50,10 @@ func (c *claude) ChatArgs(l Launch, perm string) []string {
 // the effort in use; the answers come back as control_responses.
 func (c *claude) ChatStart(st *ChatState, l Launch, perm, cwd string) [][]byte {
 	st.Put("mcpOff", l.McpOff) // switched off once initialize is answered; earlier is ignored
-	return [][]byte{claudeControl("ait-init", map[string]any{"subtype": "initialize"}), claudeSettings()}
+	// get_context_usage: the context in use and the window, before any turn
+	// (a resumed chat shows its real size at once).
+	return [][]byte{claudeControl("ait-init", map[string]any{"subtype": "initialize"}), claudeSettings(),
+		claudeControl("ait-ctx", map[string]any{"subtype": "get_context_usage"})}
 }
 
 func (c *claude) EffortArgs(level string) []string { return []string{"--effort", level} }
@@ -534,7 +537,9 @@ func claudeAnswer(line []byte) []Ev {
 				Applied *struct {
 					Effort *string `json:"effort"`
 				} `json:"applied"`
-				McpServers []struct {
+				TotalTokens int `json:"totalTokens"`
+				MaxTokens   int `json:"maxTokens"`
+				McpServers  []struct {
 					Name   string            `json:"name"`
 					Status string            `json:"status"`
 					Error  string            `json:"error"`
@@ -562,6 +567,8 @@ func claudeAnswer(line []byte) []Ev {
 			}
 		}
 		return []Ev{{"k": "efforts", "models": levels}}
+	case r.Response.ID == "ait-ctx" && resp.MaxTokens > 0:
+		return []Ev{{"k": "ctx", "ctx": resp.TotalTokens, "window": resp.MaxTokens}}
 	case strings.HasPrefix(r.Response.ID, "ait-mcp"): // ait-mcp-… and ait-mcpcheck-…
 		servers := []map[string]any{}
 		for _, m := range resp.McpServers {

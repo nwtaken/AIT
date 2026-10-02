@@ -97,3 +97,41 @@ func TestRealCodexMcp(t *testing.T) {
 		t.Fatal("codex did not apply the switch")
 	}
 }
+
+func TestRealClaudeContextAtStart(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	providers(home)
+	p := registry["claude"]
+	cp := chatOf(p)
+	cmd := exec.Command(p.Command()[0], append(p.Command()[1:], cp.ChatArgs(Launch{}, "ask")...)...)
+	cmd.Dir = t.TempDir()
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer cmd.Process.Kill()
+	st := &ChatState{Asks: map[string]json.RawMessage{}, Data: map[string]any{}, Send: func(b []byte) { stdin.Write(b) }}
+	for _, b := range cp.ChatStart(st, Launch{}, "ask", cmd.Dir) {
+		stdin.Write(b)
+	}
+	got := make(chan Ev, 1)
+	go func() {
+		sc := bufio.NewScanner(stdout)
+		sc.Buffer(make([]byte, 1<<20), 64<<20)
+		for sc.Scan() {
+			for _, e := range cp.ChatDecode(sc.Bytes(), st) {
+				if e["k"] == "ctx" {
+					got <- e
+					return
+				}
+			}
+		}
+	}()
+	select {
+	case e := <-got:
+		t.Logf("context at start: %v", e)
+	case <-time.After(30 * time.Second):
+		t.Fatal("no context readout at start")
+	}
+}
