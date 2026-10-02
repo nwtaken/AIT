@@ -303,6 +303,9 @@ body.desk .w-tip { border-radius: 16px; font-family: var(--ui); }
 /* ==========================================================================
    Settings panel
    ========================================================================== */
+#keysSheet { top: 54px; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 84px); display: flex; flex-direction: column; overflow: hidden; }
+.ks-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 5px 0; font: 12.5px var(--ui); color: var(--text); }
+.ks-row kbd { font: 11.5px var(--mono); color: var(--muted); padding: 2px 7px; border: 1px solid var(--flyout-line); border-radius: 5px; white-space: nowrap; }
 #rulesEd { top: 54px; width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 84px); display: flex; flex-direction: column; overflow: hidden; }
 .rl-note { margin: 10px 0 6px; color: var(--muted); font: 12.5px/1.5 var(--ui); }
 .rl-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: 8px; }

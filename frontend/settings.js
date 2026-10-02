@@ -224,3 +224,28 @@ function closeRules() {
 }
 
 const rulesOpen = () => !$("#rulesEd").hidden;
+
+// Every keyboard shortcut, as app.js and chat.js handle them.
+const SHORTCUTS = [
+  ["Tabs", [["Ctrl+Shift+T", "New tab"], ["Ctrl+Shift+W", "Close tab"], ["Ctrl+Shift+1–9", "New tab with that AI"], ["Ctrl+Tab · Ctrl+Shift+Tab", "Next · previous tab"], ["Ctrl+1–8 · Ctrl+9", "Go to that tab · the last one"]]],
+  ["Chat", [["Enter · Shift+Enter", "Send · new line"], ["/", "Commands (/model, /export, /supereview …)"], ["Esc", "Stop the AI"], ["↑ in an empty box", "Your previous message"], ["1 · 2 · 3", "Answer a permission request (empty box)"], ["1–3 on a new tab", "Reopen a recent chat"], ["Ctrl+Shift+O", "Attach files"]]],
+  ["Find and history", [["Ctrl+F", "Find in this chat"], ["Enter · F3", "Next match"], ["Shift+Enter · Shift+F3", "Previous match"], ["Ctrl+Shift+H", "History"]]],
+  ["Window", [["Ctrl+= · Ctrl+- · Ctrl+0", "Zoom in · out · reset (or Ctrl+wheel)"], ["Ctrl+,", "Settings"], ["Ctrl+/", "This list"]]],
+];
+
+function openShortcuts() {
+  hideMenu();
+  const p = $("#keysSheet");
+  p.innerHTML = `<div class="st-head"><b>Keyboard shortcuts</b><button class="st-x" title="Close (Esc)"><span class="mdl">&#xE8BB;</span></button></div>
+    <div class="st-body">${SHORTCUTS.map(([group, rows]) => `<section><h4>${group}</h4>${rows.map(([k, what]) =>
+      `<div class="ks-row"><span>${esc(what)}</span><kbd>${esc(k)}</kbd></div>`).join("")}</section>`).join("")}</div>`;
+  p.querySelector(".st-x").addEventListener("click", closeShortcuts);
+  p.hidden = false;
+  $("#scrim").hidden = false;
+}
+
+function closeShortcuts() {
+  $("#keysSheet").hidden = true;
+  $("#scrim").hidden = !$("#historyPanel").hidden ? false : $("#confirm").hidden;
+  focusActive();
+}

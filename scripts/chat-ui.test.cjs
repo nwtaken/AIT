@@ -223,6 +223,13 @@ const assert = require("node:assert/strict");
       return r;
     });
     assert.deepEqual(draft, ["half a prompt more", [13, "half a prompt more"]], "a reopened tab gets its unsent text back, and edits keep being saved");
+    const keysheet = await page.evaluate(() => {
+      openShortcuts();
+      const r = { open: !$("#keysSheet").hidden, groups: [...document.querySelectorAll("#keysSheet h4")].map((h) => h.textContent), find: [...document.querySelectorAll("#keysSheet .ks-row")].some((x) => x.textContent.includes("Ctrl+F")) };
+      closeShortcuts();
+      return { ...r, closed: $("#keysSheet").hidden };
+    });
+    assert.deepEqual(keysheet, { open: true, groups: ["Tabs", "Chat", "Find and history", "Window"], find: true, closed: true }, "the shortcuts sheet lists every group");
     const sup = await page.evaluate(async () => {
       go.main.App.ToggleReview = async () => true;
       runLocal(tabs.get(1), "/supereview");
