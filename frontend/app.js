@@ -1045,6 +1045,7 @@ async function boot() {
   initSignIn();
   setInterval(() => { const t = tabs.get(active); if (t?.native) renderStatus(t); }, 30000); // keeps "resets in" current
   RT().EventsOn("update:available", showUpdate);
+  window.addEventListener("focus", () => API().UpdateNudge?.().catch(() => {})); // back at AIT: check if one is due
 
   $("#new").addEventListener("click", () => openTab(ui.defaultProfile));
   $("#more").addEventListener("click", (e) => { e.stopPropagation(); $("#menu").hidden ? profileMenu() : hideMenu(); });

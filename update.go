@@ -49,7 +49,8 @@ var (
 const (
 	installerAsset = "AIT-setup.exe"
 	checksumAsset  = "AIT-setup.exe.sha256"
-	checkEvery     = 6 * time.Hour
+	checkEvery     = time.Hour
+	nudgeAfter     = 10 * time.Minute // a window focus re-checks once the last check is this old
 )
 
 type UpdateInfo struct {
@@ -66,12 +67,14 @@ type UpdateInfo struct {
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
-// startUpdateChecks checks shortly after start and then every few hours,
-// telling the page when there is something newer.
+// startUpdateChecks checks shortly after start, then every hour and when the
+// user comes back to the window (UpdateNudge), telling the page when there
+// is something newer.
 func (a *App) startUpdateChecks() {
 	go func() {
 		time.Sleep(15 * time.Second)
 		for {
+			a.lastCheck.Store(time.Now().Unix())
 			if c := a.store.Config(); c.autoUpdate() {
 				if u, err := a.CheckUpdate(); err == nil && u.Available {
 					if c.AutoInstall {
@@ -82,9 +85,24 @@ func (a *App) startUpdateChecks() {
 					a.emit("update:available", u)
 				}
 			}
-			time.Sleep(checkEvery)
+			select {
+			case <-time.After(checkEvery):
+			case <-a.checkNow:
+			}
 		}
 	}()
+}
+
+// UpdateNudge is called when the AIT window comes to the front: a check
+// that is due runs now instead of at the next hourly one.
+func (a *App) UpdateNudge() {
+	if last := a.lastCheck.Load(); last == 0 || time.Since(time.Unix(last, 0)) < nudgeAfter {
+		return // not started yet, or checked recently
+	}
+	select {
+	case a.checkNow <- struct{}{}:
+	default:
+	}
 }
 
 // CheckUpdate asks GitHub for the latest release.

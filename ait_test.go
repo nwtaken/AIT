@@ -768,3 +768,24 @@ func TestCrossAIHandover(t *testing.T) {
 		}
 	}
 }
+
+// Coming back to the window re-checks for updates only when the last check is old.
+func TestUpdateNudge(t *testing.T) {
+	s, _ := newStoreAt(t.TempDir(), t.TempDir())
+	a := NewApp(s)
+	a.UpdateNudge()
+	if len(a.checkNow) != 0 {
+		t.Fatal("nudged before the first check")
+	}
+	a.lastCheck.Store(time.Now().Unix())
+	a.UpdateNudge()
+	if len(a.checkNow) != 0 {
+		t.Fatal("nudged right after a check")
+	}
+	a.lastCheck.Store(time.Now().Add(-nudgeAfter - time.Minute).Unix())
+	a.UpdateNudge()
+	a.UpdateNudge() // a second focus doesn't queue a second check
+	if len(a.checkNow) != 1 {
+		t.Fatalf("queued %d checks", len(a.checkNow))
+	}
+}

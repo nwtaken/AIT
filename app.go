@@ -81,13 +81,15 @@ type App struct {
 	claims  map[string]int // transcript path -> tab id that owns it
 	standby *Tab           // prewarmed agent waiting for a tab (standby.go)
 
+	checkNow              chan struct{} // UpdateNudge wakes the update checker (update.go)
+	lastCheck             atomic.Int64
 	updMu                 sync.Mutex
 	prepared, preparedVer string // a verified installer waiting to run (update.go)
 	cols, rows            int    // last terminal size the page reported
 }
 
 func NewApp(store *Store) *App {
-	a := &App{store: store, tabs: map[int]*Tab{}, claims: map[string]int{}}
+	a := &App{store: store, tabs: map[int]*Tab{}, claims: map[string]int{}, checkNow: make(chan struct{}, 1)}
 	a.emit = func(event string, data ...any) { runtime.EventsEmit(a.ctx, event, data...) }
 	return a
 }
