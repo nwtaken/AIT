@@ -57,6 +57,8 @@ func rpc(id int, method string, params any) []byte {
 // approval settings for AIT's three permission choices.
 func codexPolicy(perm string) (approval, sandbox string) {
 	switch perm {
+	case "review":
+		return "never", "read-only"
 	case "never":
 		return "never", "danger-full-access"
 	case "edits":
@@ -67,6 +69,11 @@ func codexPolicy(perm string) (approval, sandbox string) {
 }
 
 func (c *codex) ChatStart(st *ChatState, l Launch, perm, cwd string) [][]byte {
+	for i, arg := range l.Extra {
+		if (arg == "--model" || arg == "-m") && i+1 < len(l.Extra) {
+			st.Put("model", l.Extra[i+1]) // resumed threads must use this account's model too
+		}
+	}
 	approval, sandbox := codexPolicy(perm)
 	if hasFlag(l.Extra, "--sandbox") && sandbox != "read-only" {
 		sandbox = "danger-full-access" // file access: everywhere
@@ -326,8 +333,14 @@ func (c *codex) ChatDecode(line []byte, st *ChatState) []Ev {
 		json.Unmarshal(m.Params, &p)
 		st.Put("turn", "")
 		e := Ev{"k": "done", "ms": p.Turn.DurationMS}
-		if p.Turn.Error != nil && p.Turn.Status == "failed" {
-			e["error"] = p.Turn.Error.Message
+		if p.Turn.Status == "interrupted" {
+			e["interrupted"] = true
+		}
+		if p.Turn.Status == "failed" {
+			e["error"] = "The AI turn failed"
+			if p.Turn.Error != nil && p.Turn.Error.Message != "" {
+				e["error"] = p.Turn.Error.Message
+			}
 		}
 		return []Ev{e}
 	case "error":
@@ -440,7 +453,8 @@ func (c *codex) ask(st *ChatState, line []byte, m codexMsg) []Ev {
 }
 
 // ChatHistory replays a Codex rollout: what the user typed, the answers,
-// and the commands run.
+// and the commands run. Codex 0.155 records turns as item_completed events;
+// older rollouts only have event_msg user_message / agent_message.
 func (c *codex) ChatHistory(path string) []Ev {
 	f, err := os.Open(path)
 	if err != nil {
@@ -449,32 +463,81 @@ func (c *codex) ChatHistory(path string) []Ev {
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
-	var out []Ev
+	var items, legacy []Ev
 	n := 0
 	for sc.Scan() {
 		var l struct {
 			Type    string `json:"type"`
 			Payload struct {
-				Type    string `json:"type"`
-				Message string `json:"message"`
-				Command any    `json:"command"`
-				CallID  string `json:"call_id"`
+				Type    string          `json:"type"`
+				Message string          `json:"message"`
+				Item    json.RawMessage `json:"item"`
 			} `json:"payload"`
 		}
 		if json.Unmarshal(sc.Bytes(), &l) != nil || l.Type != "event_msg" {
 			continue
 		}
 		switch l.Payload.Type {
+		case "item_completed":
+			var it struct {
+				Type    string `json:"type"`
+				ID      string `json:"id"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+				Command []string `json:"command"`
+				Parsed  []struct {
+					Cmd string `json:"cmd"`
+				} `json:"parsed_cmd"`
+				ExitCode *int                       `json:"exit_code"`
+				Changes  map[string]json.RawMessage `json:"changes"`
+			}
+			if json.Unmarshal(l.Payload.Item, &it) != nil {
+				continue
+			}
+			var parts []string
+			for _, ct := range it.Content {
+				parts = append(parts, ct.Text)
+			}
+			text := strings.TrimSpace(strings.Join(parts, ""))
+			switch it.Type {
+			case "UserMessage":
+				if text != "" {
+					items = append(items, Ev{"k": "user", "text": text})
+				}
+			case "AgentMessage":
+				if text != "" {
+					n++
+					items = append(items, Ev{"k": "msg", "id": fmt.Sprintf("h%d", n)}, Ev{"k": "text", "text": text})
+				}
+			case "CommandExecution":
+				cmd := ""
+				if len(it.Parsed) == 1 {
+					cmd = it.Parsed[0].Cmd
+				} else if len(it.Command) > 0 {
+					cmd = it.Command[len(it.Command)-1]
+				}
+				items = append(items, Ev{"k": "tool", "id": it.ID, "name": "Bash", "input": map[string]any{"command": cmd}},
+					Ev{"k": "result", "id": it.ID, "ok": it.ExitCode == nil || *it.ExitCode == 0, "text": ""})
+			case "FileChange":
+				for file := range it.Changes {
+					items = append(items, Ev{"k": "tool", "id": it.ID, "name": "Patch", "input": map[string]any{"file_path": file}},
+						Ev{"k": "result", "id": it.ID, "ok": true, "text": ""})
+				}
+			}
 		case "user_message":
 			if t := strings.TrimSpace(l.Payload.Message); t != "" {
-				out = append(out, Ev{"k": "user", "text": t})
+				legacy = append(legacy, Ev{"k": "user", "text": t})
 			}
 		case "agent_message":
 			if t := strings.TrimSpace(l.Payload.Message); t != "" {
 				n++
-				out = append(out, Ev{"k": "msg", "id": fmt.Sprintf("h%d", n)}, Ev{"k": "text", "text": t})
+				legacy = append(legacy, Ev{"k": "msg", "id": fmt.Sprintf("h%d", n)}, Ev{"k": "text", "text": t})
 			}
 		}
 	}
-	return out
+	if len(items) > 0 {
+		return items
+	}
+	return legacy
 }

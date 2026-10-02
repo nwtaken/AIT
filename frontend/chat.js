@@ -15,6 +15,7 @@ const LOCAL_COMMANDS = [
   { name: "model", desc: "Switch the model" },
   { name: "folder", desc: "Change the working folder" },
   { name: "history", desc: "Open past chats" },
+  { name: "supereview", desc: "Another AI checks your work · 2+ connected accounts required" },
 ];
 
 marked.setOptions({ gfm: true, breaks: false });
@@ -86,6 +87,8 @@ function createChat(tab) {
 
 function chatOpened(tab, info, resumed) {
   const c = tab.chat;
+  API().CanReview(tab.id).then((yes) => { c.reviewAvailable = yes; if (!c.palette.hidden) updatePalette(tab); }).catch(() => {});
+  restoreModel(tab, info.model || "");
   c.folder = info.folder || "";
   tab.account = info.account || "";
   c.trust.hidden = true; // agents may work anywhere (Settings → File access)
@@ -109,6 +112,30 @@ function fillBoot(tab) {
 
 function chatFocus(tab) {
   if (tab.chat && !overlayOpen()) tab.chat.ta.focus();
+}
+
+function setupChatFocus() {
+  const controls = "input, textarea, select, button, a, [contenteditable], [tabindex], [role=button]";
+  const available = () => {
+    const tab = tabs.get(active);
+    return tab?.native && tab.chat && !overlayOpen() && $("#menu").hidden && $("#modelpop").hidden ? tab : null;
+  };
+  document.addEventListener("click", (e) => {
+    const tab = available();
+    if (!tab || e.target.closest(controls) || !window.getSelection().isCollapsed) return;
+    tab.chat.ta.focus({ preventScroll: true });
+  });
+  // Leave selection available for copying; return to the prompt when typing resumes.
+  document.addEventListener("keydown", (e) => {
+    const tab = available();
+    if (!tab || e.defaultPrevented || e.target.closest(controls)) return;
+    const paste = (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "v";
+    const typing = !e.ctrlKey && !e.metaKey && !e.altKey &&
+      (e.key.length === 1 || ["Enter", "Backspace", "Delete", "Process"].includes(e.key));
+    if (!typing && !paste) return;
+    tab.chat.ta.focus({ preventScroll: true });
+    composerKey(e, tab);
+  }, true);
 }
 
 // ---- welcome ------------------------------------------------------------------
@@ -169,6 +196,9 @@ function chatEvents(tab, evs, live = true) {
   if (!c) return;
   for (const e of evs) {
     switch (e.k) {
+      case "handover":
+        handoverProgress(tab, e.state);
+        break;
       case "init":
         c.model = e.model || c.model;
         c.commands = (e.commands || []).filter((n) => !LOCAL_COMMANDS.some((l) => l.name === n) && !(e.tuiOnly || []).includes(n));
@@ -589,7 +619,7 @@ function setBusy(tab, on, verb) {
   const c = tab.chat;
   if (on && !c.busy) { c.started = performance.now(); c.outChars = 0; c.verb = VERBS[Math.floor(Math.random() * VERBS.length)]; }
   c.busy = on;
-  c.busyEl.hidden = !on;
+  c.busyEl.hidden = !on || !!c.reading;
   c.busyEl.querySelector(".verb").textContent = verb || c.verb || "Thinking";
   c.busyEl.classList.toggle("waiting", !!verb);
   tab.el?.classList.toggle("working", on);
@@ -683,10 +713,56 @@ function chatProvider(tab, id, name, fromName, reason) {
   const c = tab.chat;
   tab.profile = id;
   tab.el.querySelector(".icon").innerHTML = icon(id);
-  c.model = ""; c.modelChoice = ""; c.modelLabel = ""; c.commands = []; c.effort = "";
+  c.commands = []; c.effort = "";
   c.ta.placeholder = `Message ${name}   ·   / for commands`;
   chatDivider(tab, `↻ Continued on ${name} — ${fromName} ${reason}`);
   setBusy(tab, true);
+  renderStatus(tab);
+}
+
+function handoverProgress(tab, state) {
+  const c = tab.chat;
+  c.reading = state === "reading";
+  if (!c.handoverEl || c.reading) {
+    c.handoverEl = document.createElement("div");
+    c.handoverEl.className = "handover-progress";
+    c.handoverEl.innerHTML = '<span role="status" aria-live="polite"></span><progress max="1" aria-label="Conversation handover"></progress>';
+    c.thread.append(c.handoverEl);
+  }
+  const bar = c.handoverEl.querySelector("progress");
+  if (c.reading) bar.removeAttribute("value");
+  else bar.value = state === "complete" ? 1 : 0;
+  c.handoverEl.querySelector("span").textContent = c.reading ? "Reading conversation…" :
+    state === "complete" ? "Conversation ready" : "Conversation handover failed";
+  c.handoverEl.classList.toggle("failed", state === "failed");
+  c.root.querySelector(".c-send").disabled = c.reading;
+  c.root.querySelector(".c-model").disabled = c.reading;
+  setBusy(tab, state !== "failed");
+  if (c.stick) scrollEnd(c);
+}
+
+function reviewState(tab, state, name, feedback = "") {
+  const c = tab.chat;
+  const last = c.thread.lastElementChild;
+  if (last?.classList.contains("ai") && last.textContent.trim() === "[[AIT_SUPEREVIEW]]") last.remove();
+  if (!c.reviewEl || state === "start") {
+    c.reviewEl = document.createElement("div");
+    c.reviewEl.className = "review-card";
+    c.reviewEl.innerHTML = '<b></b><div class="review-body"></div>';
+    c.thread.append(c.reviewEl);
+  }
+  c.reviewEl.classList.toggle("failed", state === "error");
+  c.reviewEl.querySelector("b").textContent = state === "start" ? `${name} is reviewing this work…` :
+    state === "done" ? `${name} reviewed the work` : "Review unavailable";
+  c.reviewEl.querySelector(".review-body").textContent = feedback;
+  if (c.stick) scrollEnd(c);
+}
+
+function restoreModel(tab, model) {
+  const c = tab.chat;
+  c.model = model;
+  c.modelChoice = model;
+  c.modelLabel = prettyModel(model) || model || "Default";
   renderStatus(tab);
 }
 
@@ -718,6 +794,7 @@ function composerKey(e, tab) {
   }
   if (pal && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) { e.preventDefault(); pickPalette(tab); return; }
   if (e.key === "Escape") {
+    if (c.reading) { e.preventDefault(); return; }
     if (pal) { c.palette.hidden = true; e.preventDefault(); return; }
     if (c.busy) { API().ChatControl(tab.id, "interrupt"); e.preventDefault(); return; }
   }
@@ -748,6 +825,7 @@ function composerKey(e, tab) {
 
 function submit(tab) {
   const c = tab.chat;
+  if (c.reading) return;
   const text = c.ta.value.trim();
   if (!text && !c.files.length) return;
   if (text.startsWith("/") && runLocal(tab, text)) { c.ta.value = ""; autosize(c.ta); return; }
@@ -783,6 +861,9 @@ function runLocal(tab, text) {
     }
     case "folder": changeFolder(tab); return true;
     case "history": toggleHistory(); return true;
+    case "supereview":
+      API().Review(tab.id).catch((err) => toast(String(err)));
+      return true;
   }
   return false;
 }
@@ -792,10 +873,10 @@ function updatePalette(tab) {
   const v = c.ta.value;
   if (!/^\/\S*$/.test(v)) { c.palette.hidden = true; return; }
   const q = v.slice(1).toLowerCase();
-  const items = [...LOCAL_COMMANDS.map((l) => ({ ...l, local: true })), ...c.commands.map((n) => ({ name: n, desc: "" }))]
+  const items = [...LOCAL_COMMANDS.map((l) => ({ ...l, local: true, disabled: l.name === "supereview" && !c.reviewAvailable })), ...c.commands.map((n) => ({ name: n, desc: "" }))]
     .filter((x) => x.name.toLowerCase().includes(q)).slice(0, 8);
   if (!items.length) { c.palette.hidden = true; return; }
-  c.palette.innerHTML = items.map((x) => `<div class="pi"><b>/${esc(x.name)}</b><span>${esc(x.desc || "")}</span>${x.local ? '<i>AIT</i>' : ""}</div>`).join("");
+  c.palette.innerHTML = items.map((x) => `<div class="pi ${x.disabled ? "disabled" : ""}"><b>/${esc(x.name)}</b><span>${esc(x.desc || "")}</span>${x.local ? '<i>AIT</i>' : ""}</div>`).join("");
   c.palette.items = items;
   c.palSel = 0;
   c.palette.querySelectorAll(".pi").forEach((el, i) => el.addEventListener("mousedown", (e) => { e.preventDefault(); c.palSel = i; pickPalette(tab); }));
@@ -811,7 +892,7 @@ function pickPalette(tab) {
   const c = tab.chat;
   const it = c.palette.items?.[c.palSel];
   c.palette.hidden = true;
-  if (!it) return;
+  if (!it || it.disabled) return;
   if (it.local) { c.ta.value = ""; autosize(c.ta); runLocal(tab, "/" + it.name); return; }
   c.ta.value = "/" + it.name + " ";
   autosize(c.ta);
@@ -941,11 +1022,13 @@ const INSTALL_HINT = {
   gemini: "npm install -g @google/gemini-cli",
 };
 
-function setModel(tab, id, name) {
+async function setModel(tab, id, name) {
   const c = tab.chat;
+  try { await API().ChatControl(tab.id, "model:" + id); }
+  catch (err) { toast(String(err)); return; }
   c.modelChoice = id;
   c.modelLabel = name;
-  API().ChatControl(tab.id, "model:" + id).catch((err) => toast(String(err)));
+  c.model = id;
   sysLine(c, id ? `Model switched to ${name}` : "Model set back to the default", "ok");
   renderStatus(tab);
 }

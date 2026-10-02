@@ -39,6 +39,8 @@ type Tab struct {
 	model      string    // model chosen in this tab ("" = default); survives handoffs
 	effort     string    // thinking effort chosen in this tab ("" = default); survives handoffs
 	handover   string    // first message for an AI taking over from another (crossai.go)
+	reading    bool      // cross-AI preparation turn; interruption is disabled
+	reviewing  bool      // a second AI is checking the current work
 	wait       *time.Timer
 
 	// adopted is false while the tab is a prewarmed standby with no id yet;
@@ -217,13 +219,14 @@ type TabInfo struct {
 	Events  []Ev   `json:"events"`
 	Folder  string `json:"folder"`
 	Trusted bool   `json:"trusted"`
+	Model   string `json:"model"`
 }
 
 func (a *App) Open(r OpenRequest) (TabInfo, error) {
 	if t, back, cols, rows, evs := a.adoptStandby(r); t != nil {
 		acct, _ := a.store.Account(t.acct)
 		return TabInfo{Profile: r.Profile, Agent: true, Account: acct.Label, Cwd: maskUser(t.cwd), Backlog: back, Cols: cols, Rows: rows,
-			Native: t.native, Events: evs, Folder: maskUser(t.cwd), Trusted: a.store.Trusted(t.cwd)}, nil
+			Native: t.native, Events: evs, Folder: maskUser(t.cwd), Trusted: a.store.Trusted(t.cwd), Model: t.model}, nil
 	}
 	cfg := a.store.Config()
 	t := &Tab{id: r.ID, profile: r.Profile, cwd: cfg.StartingDir, cols: r.Cols, rows: r.Rows, model: r.Model}
@@ -279,10 +282,16 @@ func (a *App) Open(r OpenRequest) (TabInfo, error) {
 	} else {
 		acct = Account{ID: t.profile + "-main", Label: t.agent.Name(), Provider: t.profile}
 	}
+	if r.Model != "" {
+		if err := a.store.SetAccountModel(acct.ID, r.Model); err != nil {
+			return info, err
+		}
+	}
 	if err := a.launch(t, acct, ""); err != nil {
 		return info, err
 	}
 	info.Account = acct.Label
+	info.Model = t.model
 	info.Cwd = maskUser(t.cwd)
 	info.Native, info.Folder, info.Trusted = t.native, maskUser(t.cwd), a.store.Trusted(t.cwd)
 	info.Events = []Ev{}
@@ -473,6 +482,9 @@ func (a *App) Switch(tabID int, acctID string) error {
 	if t.closed {
 		return nil
 	}
+	if t.reading {
+		return fmt.Errorf("wait for the conversation handover to finish")
+	}
 	if to := acct.provider(); to.ID() != t.profile {
 		if !t.native || chatOf(to) == nil {
 			return fmt.Errorf("this tab can't move to %s", to.Name())
@@ -505,9 +517,12 @@ func (a *App) launch(t *Tab, acct Account, prompt string) error {
 
 	l := Launch{Extra: a.store.Config().Args[p.ID()]}
 	m := t.model
-	if m == "" {
+	if acct.Model != nil {
+		m = *acct.Model
+	} else if m == "" || (t.acct != "" && t.acct != acct.ID) {
 		m = a.store.Config().Models[p.ID()]
 	}
+	t.model = m
 	if m != "" && !hasFlag(l.Extra, "--model", "-m") {
 		l.Extra = append(l.Extra, p.ModelArgs(m)...)
 	}
@@ -557,12 +572,17 @@ func (a *App) launch(t *Tab, acct Account, prompt string) error {
 		if l.NewID != "" {
 			a.claim(t, p.SessionFile(home, t.cwd, l.NewID))
 		}
-		if prompt != "" {
+		if prompt != "" && t.handover == "" {
 			t.chat.send(cp.ChatUser(t.chatState, prompt, nil))
 		}
 		if t.handover != "" {
-			t.chat.send(cp.ChatUser(t.chatState, t.handover, nil))
-			t.handover = ""
+			t.reading = true
+			a.chatOut(t, []Ev{{"k": "handover", "state": "reading"}})
+			if err := t.chat.send(cp.ChatUser(t.chatState, t.handover, nil)); err != nil {
+				t.reading, t.handover = false, ""
+				a.chatOut(t, []Ev{{"k": "handover", "state": "failed"}})
+				return err
+			}
 		}
 		go a.watch(t, t.gen.Load())
 		return nil
@@ -607,7 +627,7 @@ func (a *App) relaunch(t *Tab, to Account, prompt string) error {
 		a.emit("pty:out", t.id, base64.StdEncoding.EncodeToString([]byte("\r\n\x1b[31m"+err.Error()+"\x1b[0m\r\n")))
 		return err
 	}
-	a.emit("tab:account", t.id, to.Label)
+	a.emit("tab:account", t.id, to.Label, t.model)
 	return nil
 }
 

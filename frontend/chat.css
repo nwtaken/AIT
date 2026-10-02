@@ -15,6 +15,10 @@
   --ease: cubic-bezier(.2, .8, .2, 1);
 }
 
+.handover-progress { display: grid; gap: 8px; margin: 16px 0; color: var(--muted); font-size: var(--fs); }
+.handover-progress progress { width: min(100%, 360px); height: 6px; accent-color: var(--accent); }
+.handover-progress.failed { color: var(--err); }
+
 /* custom theme: three colours, everything else derived */
 :root[data-theme="custom"] {
   --bg: var(--c-bg); --text: var(--c-fg); --accent: var(--c-accent);
@@ -214,6 +218,11 @@
 .pi b { color: var(--accent); font-weight: 700; min-width: 11ch; } .pi span { color: var(--muted); flex: 1; font-family: var(--ui); font-size: 12px; }
 .pi i { font: 600 10px var(--ui); color: var(--faint); font-style: normal; border: 1px solid var(--hair); border-radius: 4px; padding: 0 4px; }
 .pi.sel { background: var(--flyout-hover); }
+.pi.disabled { opacity: .45; cursor: not-allowed; }
+.review-card { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--hair); border-radius: 8px; background: var(--soft); }
+.review-card b { color: var(--accent); }
+.review-card .review-body { margin-top: 8px; color: var(--text); white-space: pre-wrap; font: 12px/1.55 var(--mono); }
+.review-card.failed b { color: var(--err); }
 
 .composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 10px; border: 1px solid var(--hair);
   background: var(--soft); transition: border-color .2s, box-shadow .2s; }

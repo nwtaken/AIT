@@ -25,6 +25,8 @@ func (c *claude) ChatArgs(l Launch, perm string) []string {
 		"--verbose", "--include-partial-messages",
 		"--permission-prompts", "host", "--permission-prompt-tool", "stdio"}
 	switch perm {
+	case "review":
+		args = append(args, "--permission-mode", "plan")
 	case "never":
 		args = append(args, "--permission-mode", "bypassPermissions")
 	case "edits":
@@ -240,6 +242,9 @@ func (c *claude) ChatDecode(line []byte, st *ChatState) []Ev {
 		}
 		if l.IsError {
 			e["error"] = l.Result
+			if l.Result == "" {
+				e["error"] = "The AI turn failed"
+			}
 		}
 		return []Ev{e}
 	}

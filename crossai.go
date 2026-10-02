@@ -16,6 +16,47 @@ import (
 
 const handoverLimit = 60 << 10 // keep handover files readable in one go
 
+const handoverContinue = "Continue the user's latest request from the conversation you just reviewed. " +
+	"Resume exactly where work stopped, preserve its constraints, and do not redo completed steps or recap the handover."
+
+// Preparation has its own turn, so completion is a provider event rather than
+// a guessed timer or a phrase matched in the assistant's output.
+func (a *App) handoverEvents(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, gen int64, evs []Ev) []Ev {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.gen.Load() != gen {
+		return nil
+	}
+	if !t.reading {
+		return evs
+	}
+	var out []Ev
+	for _, e := range evs {
+		switch e["k"] {
+		case "init", "quota", "ctx", "efforts", "effort":
+			out = append(out, e)
+		case "ask":
+			// Preparation only needs the supplied transcript, never file changes.
+			req, _ := e["req"].(string)
+			proc.send(cp.ChatReply(st, req, "deny", st.Asks[req]))
+			delete(st.Asks, req)
+		case "error":
+			t.reading, t.handover = false, ""
+			return append(out, Ev{"k": "handover", "state": "failed"}, e)
+		case "done":
+			t.reading, t.handover = false, ""
+			if errText, _ := e["error"].(string); errText != "" || e["interrupted"] == true {
+				return append(out, Ev{"k": "handover", "state": "failed"}, e)
+			}
+			if err := proc.send(cp.ChatUser(st, handoverContinue, nil)); err != nil {
+				return append(out, Ev{"k": "handover", "state": "failed"}, Ev{"k": "error", "text": err.Error()})
+			}
+			return append(out, Ev{"k": "handover", "state": "complete"})
+		}
+	}
+	return out
+}
+
 // nextAI finds the AI to continue on after every account of `from` is out:
 // the next one in the user's order that is installed, can show a native
 // chat, and has an account ready.
@@ -48,14 +89,22 @@ func (a *App) crossOver(t *Tab, to Provider, acct Account, reason string) error 
 	if err != nil {
 		return err
 	}
+	history, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
 	t.agent, t.profile = to, to.ID()
 	t.session, t.model, t.effort = "", "", ""
 	t.handover = fmt.Sprintf(
 		"You are taking over a conversation from %s, which %s. The conversation so far, "+
 			"including what was already done, is in this file: %s\n\n"+
-			"Read it, then continue the work exactly where it stopped. Don't redo finished steps "+
-			"and don't recap; just carry on with the user's last request.", from.Name(), reason, file)
+			"This is the preparation turn only. Read the conversation included below, identify the latest "+
+			"request and unfinished work, and retain the constraints and completed steps. Do not use tools "+
+			"or begin work yet. Reply only READY when you have reviewed it. AIT will send a separate "+
+			"message to continue automatically.\n\n<conversation>\n%s\n</conversation>", from.Name(), reason, file, history)
 	if err := a.relaunch(t, acct, ""); err != nil {
+		t.reading, t.handover = false, ""
+		a.chatOut(t, []Ev{{"k": "handover", "state": "failed"}})
 		return err
 	}
 	a.emit("tab:provider", t.id, to.ID(), to.Name(), from.Name(), reason)
@@ -78,6 +127,9 @@ func (a *App) ContinueOn(id int, providerID string) error {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.reading {
+		return fmt.Errorf("wait for the conversation handover to finish")
+	}
 	if t.wait != nil {
 		t.wait.Stop()
 		t.wait = nil
@@ -158,4 +210,27 @@ func firstLine(s string) string {
 		s = s[:200] + "…"
 	}
 	return s
+}
+
+// Hide AIT's internal preparation and continuation prompts when a chat is reopened.
+func visibleHistory(evs []Ev) []Ev {
+	out := make([]Ev, 0, len(evs))
+	preparing := false
+	for _, e := range evs {
+		if e["k"] == "user" {
+			text, _ := e["text"].(string)
+			if strings.Contains(text, "This is the preparation turn only.") && strings.Contains(text, "<conversation>") {
+				preparing = true
+				continue
+			}
+			if strings.TrimSpace(text) == handoverContinue {
+				preparing = false
+				continue
+			}
+		}
+		if !preparing {
+			out = append(out, e)
+		}
+	}
+	return out
 }

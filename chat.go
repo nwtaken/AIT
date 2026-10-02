@@ -144,6 +144,8 @@ func (a *App) startChat(t *Tab, cp ChatProvider, cmdline []string, env []string,
 func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, stdout io.Reader, stderr *strings.Builder, gen int64) {
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 1<<20), 64<<20) // agent turns get large
+	textBlocks := map[any]bool{}
+	var turnText strings.Builder
 	for sc.Scan() {
 		if t.gen.Load() != gen {
 			continue // replaced; drain quietly
@@ -152,8 +154,22 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 		if len(evs) == 0 {
 			continue
 		}
+		requestReview := false
 		for _, e := range evs {
 			switch e["k"] {
+			case "msg":
+				turnText.Reset()
+			case "start":
+				textBlocks[e["i"]] = e["type"] == "text"
+			case "delta":
+				if textBlocks[e["i"]] && turnText.Len() < 1024 {
+					if s, _ := e["text"].(string); s != "" {
+						turnText.WriteString(s)
+					}
+				}
+			case "done":
+				requestReview = strings.TrimSpace(turnText.String()) == reviewMarker
+				turnText.Reset()
 			case "quota":
 				a.store.SetQuota(t.acctID(), e)
 			case "init":
@@ -167,10 +183,25 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 				}
 			}
 		}
+		evs = a.handoverEvents(t, cp, proc, st, gen, evs)
 		a.chatOut(t, evs)
+		if requestReview && t.gen.Load() == gen {
+			go func() {
+				if err := a.Review(t.id); err != nil {
+					a.emit("review:error", t.id, err.Error())
+					a.ChatSend(t.id, "The requested independent review is unavailable: "+err.Error()+". Continue the user's request without it.", nil)
+				}
+			}()
+		}
 	}
 	proc.cmd.Wait()
 	if t.gen.Load() == gen {
+		t.mu.Lock()
+		if t.reading && t.gen.Load() == gen {
+			t.reading, t.handover = false, ""
+			a.chatOut(t, []Ev{{"k": "handover", "state": "failed"}})
+		}
+		t.mu.Unlock()
 		msg := strings.TrimSpace(stderr.String())
 		a.chatOut(t, []Ev{{"k": "exit", "text": lastLines(msg, 6)}})
 		if !t.adopted.Load() {
@@ -206,6 +237,10 @@ func (a *App) ChatSend(id int, text string, files []string) error {
 		return fmt.Errorf("no tab")
 	}
 	t.mu.Lock()
+	if t.reading {
+		t.mu.Unlock()
+		return fmt.Errorf("wait for the conversation handover to finish")
+	}
 	proc, cp := t.chat, chatOf(t.agent)
 	t.mu.Unlock()
 	if proc == nil || cp == nil {
@@ -256,24 +291,26 @@ func (a *App) ChatControl(id int, what string) error {
 		return fmt.Errorf("no tab")
 	}
 	t.mu.Lock()
-	proc, cp := t.chat, chatOf(t.agent)
-	t.mu.Unlock()
+	defer t.mu.Unlock()
+	if t.reading {
+		if what == "interrupt" {
+			return nil
+		}
+		return fmt.Errorf("wait for the conversation handover to finish")
+	}
+	proc, cp, st := t.chat, chatOf(t.agent), t.chatState
 	if proc == nil || cp == nil {
 		return fmt.Errorf("the agent is not running")
 	}
 	if m, ok := strings.CutPrefix(what, "model:"); ok {
-		t.mu.Lock()
+		if err := a.store.SetAccountModel(t.acct, m); err != nil {
+			return err
+		}
 		t.model = m // a handoff relaunches on the same model
-		t.mu.Unlock()
 	}
 	if e, ok := strings.CutPrefix(what, "effort:"); ok {
-		t.mu.Lock()
 		t.effort = e // and the same effort
-		t.mu.Unlock()
 	}
-	t.mu.Lock()
-	st := t.chatState
-	t.mu.Unlock()
 	if b := cp.ChatControl(st, what); b != nil {
 		return proc.send(b)
 	}
@@ -293,7 +330,7 @@ func (a *App) ChatHistory(id int) []Ev {
 	if cp == nil || path == "" || !fileExists(path) {
 		return []Ev{}
 	}
-	return cp.ChatHistory(path)
+	return visibleHistory(cp.ChatHistory(path))
 }
 
 // TrustFolder records that the user lets agents work in this tab's folder.

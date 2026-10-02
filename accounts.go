@@ -15,10 +15,11 @@ import (
 // means the agent's normal login (~/.claude, ~/.codex), which AIT reads
 // but never rewrites.
 type Account struct {
-	ID       string `json:"id"`
-	Label    string `json:"label"`
-	Provider string `json:"provider,omitempty"` // "" = claude
-	Dir      string `json:"dir,omitempty"`
+	ID       string  `json:"id"`
+	Label    string  `json:"label"`
+	Provider string  `json:"provider,omitempty"` // "" = claude
+	Dir      string  `json:"dir,omitempty"`
+	Model    *string `json:"model,omitempty"` // nil uses the provider default
 }
 
 func (a Account) provider() Provider { return provider(a.Provider) }
@@ -207,6 +208,19 @@ func (s *Store) Account(id string) (Account, bool) {
 		}
 	}
 	return Account{}, false
+}
+
+func (s *Store) SetAccountModel(id, model string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c := s.Config()
+	for i := range c.Accounts {
+		if c.Accounts[i].ID == id {
+			c.Accounts[i].Model = &model
+			return s.saveConfig(c)
+		}
+	}
+	return nil // the agent's own login (no saved account): the tab keeps the choice
 }
 
 func (s *Store) Email(a Account) string  { return a.provider().Email(s.Home(a)) }

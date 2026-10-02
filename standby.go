@@ -66,7 +66,11 @@ func (a *App) adoptStandby(r OpenRequest) (*Tab, []byte, int, int, []Ev) {
 
 	t.mu.Lock()
 	acct, ok := a.store.Account(t.acct)
-	if (t.pty == nil && t.chat == nil) || t.closed || !ok || !a.store.Available(acct, time.Now()) {
+	model := a.store.Config().Models[t.profile]
+	if acct.Model != nil {
+		model = *acct.Model
+	}
+	if (t.pty == nil && t.chat == nil) || t.closed || !ok || !a.store.Available(acct, time.Now()) || model != t.model {
 		t.closed = true
 		if t.pty != nil {
 			go t.pty.Close()

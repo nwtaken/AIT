@@ -312,6 +312,12 @@ func (c *codex) readChat(p string) (Chat, bool) {
 				Type    string `json:"type"`
 				Cwd     string `json:"cwd"`
 				Message string `json:"message"`
+				Item    struct {
+					Type    string `json:"type"`
+					Content []struct {
+						Text string `json:"text"`
+					} `json:"content"`
+				} `json:"item"`
 			} `json:"payload"`
 		}
 		if json.Unmarshal(line, &l) != nil {
@@ -322,6 +328,11 @@ func (c *codex) readChat(p string) (Chat, bool) {
 		}
 		if l.Type == "event_msg" && l.Payload.Type == "user_message" && ch.Title == "" {
 			ch.Title = strings.TrimSpace(l.Payload.Message)
+		}
+		// Codex 0.155+ records the prompt as an item_completed UserMessage.
+		if l.Type == "event_msg" && l.Payload.Type == "item_completed" && l.Payload.Item.Type == "UserMessage" &&
+			ch.Title == "" && len(l.Payload.Item.Content) > 0 {
+			ch.Title = strings.TrimSpace(l.Payload.Item.Content[0].Text)
 		}
 		if ch.Cwd != "" && ch.Title != "" {
 			break

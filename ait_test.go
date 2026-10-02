@@ -749,22 +749,39 @@ func TestCrossAIHandover(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no cross-AI handover")
 	}
+	files, _ := filepath.Glob(filepath.Join(root, "handovers", "*.md"))
+	if len(files) != 1 {
+		t.Fatalf("handover files: %v", files)
+	}
+	md, _ := os.ReadFile(files[0])
+	if !strings.Contains(string(md), "add a login page") || !strings.Contains(string(md), "Created login.tsx") {
+		t.Fatalf("handover file missing the conversation:\n%s", md)
+	}
+	reading, ready := false, false
 	for end := time.After(5 * time.Second); ; {
 		select {
 		case e := <-evs:
+			if e["k"] == "handover" {
+				if e["state"] == "reading" {
+					reading = true
+				}
+				if e["state"] == "complete" {
+					ready = reading
+				}
+			}
 			text, _ := e["text"].(string)
-			if e["k"] != "delta" || !strings.Contains(text, "taking over a conversation from Claude") {
+			if strings.Contains(text, "preparation turn only") {
+				t.Fatal("preparation output leaked into the chat")
+			}
+			if e["k"] != "delta" || !strings.Contains(text, handoverContinue) {
 				continue
 			}
-			i := strings.Index(text, "file: ")
-			file := strings.TrimSpace(strings.SplitN(text[i+6:], "\n", 2)[0])
-			md, _ := os.ReadFile(file)
-			if !strings.Contains(string(md), "add a login page") || !strings.Contains(string(md), "Created login.tsx") {
-				t.Fatalf("handover file missing the conversation:\n%s", md)
+			if !ready {
+				t.Fatal("continued before reading completed")
 			}
 			return
 		case <-end:
-			t.Fatal("the next AI was never told to read the handover")
+			t.Fatal("the next AI never continued after reading the handover")
 		}
 	}
 }

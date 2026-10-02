@@ -1018,11 +1018,12 @@ async function boot() {
     tab.term.reset();
     showVeil(tab, "Passing the conversation on", "switching account");
   });
-  RT().EventsOn("tab:account", (id, label) => {
+  RT().EventsOn("tab:account", (id, label, model) => {
     const tab = tabs.get(id);
     if (!tab) return;
     const moved = tab.account && tab.account !== label;
     tab.account = label;
+    if (tab.native) restoreModel(tab, model || "");
     if (tab.native && moved) chatDivider(tab, `↻ Continued on ${label}`);
     if (tab.veil) tab.veil.querySelector("small").textContent = "continuing on " + label;
     updateChrome();
@@ -1040,6 +1041,9 @@ async function boot() {
   });
   RT().EventsOn("tab:provider", (id, pid, name, fromName, reason) => { const t = tabs.get(id); if (t?.native) chatProvider(t, pid, name, fromName, reason); updateChrome(); });
   RT().EventsOn("tab:crossask", (id, to, toName, fromName) => { const t = tabs.get(id); if (t?.native) crossAsk(t, to, toName, fromName); });
+  RT().EventsOn("review:start", (id, name) => { const t = tabs.get(id); if (t?.native) reviewState(t, "start", name); });
+  RT().EventsOn("review:done", (id, name, feedback) => { const t = tabs.get(id); if (t?.native) reviewState(t, "done", name, feedback); });
+  RT().EventsOn("review:error", (id, message) => { const t = tabs.get(id); if (t?.native) reviewState(t, "error", "", message); });
   RT().EventsOn("tab:notice", (id, text) => { toast(text); updateChrome(); });
   RT().EventsOn("app:close-requested", confirmQuit);
   initSignIn();
@@ -1099,6 +1103,7 @@ async function boot() {
     zoom(e.deltaY < 0 ? 1 : -1);
   }, { passive: false, capture: true });
   window.addEventListener("focus", updateChrome);
+  setupChatFocus();
   setupDrop();
 
   new ResizeObserver(() => {
