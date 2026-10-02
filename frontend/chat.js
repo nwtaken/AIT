@@ -48,7 +48,7 @@ function createChat(tab) {
         <button class="cbtn c-send" title="Send (Enter)"><span class="mdl">&#xE724;</span></button>
       </div>
       <div class="statusline">
-        <span class="sl-seg sl-use"></span><span class="sl-seg sl-week"></span><span class="sl-seg sl-ctx"></span><span class="sl-seg sl-full"></span><span class="sl-seg sl-turn"></span>
+        <span class="sl-seg sl-use"></span><span class="sl-seg sl-week"></span><span class="sl-seg sl-ctx"></span><span class="sl-seg sl-full"></span><span class="sl-seg sl-review"></span><span class="sl-seg sl-turn"></span>
         <button class="sl-folder" title="Change folder"></button>
       </div>
     </div>`;
@@ -935,6 +935,7 @@ function runLocal(tab, text) {
       // work once it thinks it is finished. Nothing happens on its own.
       API().ToggleReview(tab.id).then((on) => {
         reviewOn = on;
+        renderStatus(tab);
         sysLine(tab.chat, on ? "Supereview on: when the AI thinks it's finished, it can ask another AI what to improve. The chat restarts on the same conversation to apply it."
           : "Supereview off", "ok");
       }).catch((err) => toast(String(err)));
@@ -1311,6 +1312,8 @@ function renderStatus(tab) {
     c.ctx ? `Token context: ${c.ctx.toLocaleString()} tokens${c.window ? ` of ${c.window.toLocaleString()} (${pct(c.ctx / c.window)}); when it fills, the AI compacts the conversation` : ""}` : "");
   seg(".sl-full", c.bytes ? `<b>full</b><span>${fmtBytes(c.bytes)}</span>` : "",
     c.bytes ? "The whole conversation on disk: every message and tool output, earlier AIs included. Only the token context counts toward the limit." : "");
+  seg(".sl-review", reviewOn && c.reviewAvailable ? "<b>review</b><span>on</span>" : "",
+    reviewOn && c.reviewAvailable ? "Supereview is on: when the AI thinks it's finished, it can ask another AI what to improve (/supereview to switch off)" : "");
   seg(".sl-turn", c.lastMs ? `<b>last</b><span>${secsText(c.lastMs)}</span>` : "", c.lastMs ? "How long the last reply took" : "");
   r.querySelector(".sl-folder").textContent = c.folder || "";
   trayPush();

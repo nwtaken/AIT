@@ -188,6 +188,8 @@ const assert = require("node:assert/strict");
     });
     assert.equal(sup[0], true, "/supereview switches review on");
     assert.match(sup[1], /Supereview on/, "/supereview says it is on, and does nothing else");
+    const mark = await page.evaluate(() => { const t = tabs.get(1); t.chat.reviewAvailable = true; renderStatus(t); const m = t.chat.root.querySelector(".sl-review").textContent; reviewOn = false; renderStatus(t); return [m, t.chat.root.querySelector(".sl-review").textContent]; });
+    assert.deepEqual(mark, ["reviewon", ""], "the status line shows when supereview is on");
     // The page's own start-up (not run here) wires #calt to settle("alt").
     const choice = await page.evaluate(() => {
       const b = document.querySelector("#calt");
