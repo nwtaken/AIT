@@ -26,6 +26,11 @@ json.dump(c, open("wails.json", "w", encoding="utf-8"), indent=2)
 PY
 
 go test ./...
+# The page: every script must parse, and the browser UI test must pass when
+# Playwright is installed (npx playwright keeps it in the npm cache).
+for f in frontend/*.js scripts/*.cjs; do node --check "$f"; done
+PW="$(ls -d "${LOCALAPPDATA:-}"/npm-cache/_npx/*/node_modules/playwright 2>/dev/null | head -1 || true)"
+if [[ -n "$PW" ]]; then NODE_PATH="$(dirname "$PW")" node scripts/chat-ui.test.cjs; else echo "Playwright not found: UI test skipped"; fi
 wails build -s -trimpath -nsis -ldflags "-X main.Version=$V"
 
 mkdir -p dist
@@ -33,7 +38,8 @@ cp build/bin/AIT-amd64-installer.exe dist/AIT-setup.exe
 sha256sum dist/AIT-setup.exe | cut -d' ' -f1 > dist/AIT-setup.exe.sha256
 echo "sha256: $(cat dist/AIT-setup.exe.sha256)"
 
-git add wails.json
+# wails rewrites the installer's version on every build.
+git add wails.json build/windows/installer/wails_tools.nsh
 git diff --cached --quiet || git commit -m "Release v$V"
 git tag -a "v$V" -m "AIT $V"
 git push origin HEAD "v$V"
