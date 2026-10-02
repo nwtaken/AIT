@@ -29,7 +29,7 @@ var trayIcon []byte
 
 const windowClass = "AITMainWindow"
 
-const panelW = 300 // panel width in DIPs; the height follows its content
+const panelW = 320 // panel width in DIPs; the height follows its content
 
 const wmPanelUpdate = 0x8000 + 21 // WM_APP+21: new status for the panel
 
@@ -252,6 +252,29 @@ func (a *App) panelMessage(msg string) {
 			if vis, _, _ := procIsWindowVisible.Call(a.panel.hwnd); vis != 0 {
 				a.placePanel()
 			}
+		}
+		return
+	}
+	// A message or an answer typed in the panel goes to that tab's chat, as
+	// if typed in AIT; the panel stays open to show the reply.
+	if rest, ok := strings.CutPrefix(msg, "send:"); ok {
+		var m struct {
+			Tab  int    `json:"tab"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal([]byte(rest), &m) == nil && strings.TrimSpace(m.Text) != "" {
+			a.emit("tray:send", m.Tab, m.Text)
+		}
+		return
+	}
+	if rest, ok := strings.CutPrefix(msg, "ask:"); ok {
+		var m struct {
+			Tab      int    `json:"tab"`
+			Req      string `json:"req"`
+			Decision string `json:"d"`
+		}
+		if json.Unmarshal([]byte(rest), &m) == nil {
+			a.emit("tray:answer", m.Tab, m.Req, m.Decision)
 		}
 		return
 	}

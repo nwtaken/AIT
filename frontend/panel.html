@@ -6,6 +6,15 @@
 /*AIT_CSS*/
 html, body { margin: 0; background: var(--bg); overflow: hidden; }
 #mini { position: static; inset: auto; }
+.mn-reply { margin: 0 12px 6px; padding-left: 10px; border-left: 2px solid var(--line); color: var(--muted); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.mn-ask { margin: 2px 12px 8px; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 6px; display: flex; flex-direction: column; gap: 4px; }
+.mn-ask .ak-x { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mn-ask .ak-row { display: flex; gap: 6px; margin-top: 4px; }
+.mn-ask .btn { flex: 1; min-width: 0; height: 26px; padding: 0 6px; }
+.mn-input { padding: 2px 12px 8px; }
+.mn-input textarea { width: 100%; box-sizing: border-box; resize: none; max-height: 96px; padding: 6px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--row); color: var(--text); font: inherit; outline: none; }
+.mn-input textarea:focus { border-color: var(--accent); }
+.mn-input textarea:disabled { opacity: .5; }
 </style>
 </head>
 <body class="ready">
@@ -15,6 +24,10 @@ html, body { margin: 0; background: var(--bg); overflow: hidden; }
   <div class="mi mn-h"><span class="icon mn-icon"></span><span class="label mn-ai">AIT</span><span class="chip mn-acct"></span></div>
   <div class="mn-status"><div class="mn-state"><span class="verb">Starting…</span><span class="meta"></span></div><progress class="mn-bar"></progress></div>
   <div class="mi mn-step" hidden><span class="icon"><span class="tool-dot"></span></span><span class="label"><b class="tool-l"></b> <span class="tool-d"></span></span></div>
+  <div class="mn-reply" hidden></div>
+  <div class="mn-ask" hidden><b class="ak-t"></b><span class="ak-x"></span>
+    <div class="ak-row"><button class="btn go" data-d="allow">Allow</button><button class="btn quiet" data-d="always">Always</button><button class="btn quiet" data-d="deny">Deny</button></div></div>
+  <div class="mn-input"><textarea rows="1" spellcheck="false" placeholder="Message the AI"></textarea></div>
   <div class="mn-meters"></div>
   <div class="mn-act">
     <div class="sep"></div>
@@ -56,6 +69,20 @@ function update(next) {
     step.querySelector(".tool-l").textContent = s.step.l;
     step.querySelector(".tool-d").textContent = s.step.d;
   }
+  const reply = $(".mn-reply");
+  reply.hidden = !s.reply;
+  reply.textContent = s.reply || "";
+  const ask = $(".mn-ask");
+  ask.hidden = !s.ask;
+  if (s.ask) {
+    ask.dataset.req = s.ask.req;
+    ask.querySelector(".ak-t").textContent = s.ask.title;
+    ask.querySelector(".ak-x").textContent = s.ask.detail;
+    ask.querySelector('[data-d="always"]').hidden = !s.ask.always;
+  }
+  const ta = $(".mn-input textarea");
+  ta.disabled = !s.canSend;
+  ta.placeholder = s.canSend ? "Message " + (s.ai || "the AI") : "Open an AI chat in AIT to send messages";
   const rows = s.rows || [];
   const html = (rows.length ? '<div class="sep"></div>' : "") + rows.map((r) =>
     `<div class="mi mn-m"><span class="label">${esc(r.l)}<span class="sub">${esc(r.note)}</span></span>${meter(r.f)}<span class="chip">${Math.round(r.f * 100)}%</span></div>`).join("");
@@ -78,6 +105,24 @@ function fit() {
 }
 
 document.querySelectorAll("[data-a]").forEach((b) => b.addEventListener("click", () => post(b.dataset.a)));
+document.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => {
+  if (s?.ask) post("ask:" + JSON.stringify({ tab: s.tab, req: s.ask.req, d: b.dataset.d }));
+  $(".mn-ask").hidden = true;
+  fit();
+}));
+const ta = $(".mn-input textarea");
+const grow = () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; fit(); };
+ta.addEventListener("input", grow);
+ta.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || e.shiftKey) return;
+  e.preventDefault();
+  const text = ta.value.trim();
+  if (!text || !s?.canSend) return;
+  post("send:" + JSON.stringify({ tab: s.tab, text }));
+  ta.value = "";
+  grow();
+});
+window.addEventListener("focus", () => { if (!ta.disabled) ta.focus(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") post("close"); });
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 fit();

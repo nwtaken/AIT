@@ -88,9 +88,18 @@ const assert = require("node:assert/strict");
     await panel.evaluate((s) => update(s), snap);
     assert.equal(await panel.locator(".mn-ai").textContent(), "Claude", "tray panel names the AI");
     assert.equal(await panel.locator(".mn-m").count(), 2, "tray panel shows usage");
+    await panel.evaluate((s) => update({ ...s, tab: 1, canSend: true, reply: "Fixed the bug in app.go.", ask: { req: "r9", always: false, title: "Claude wants to run a command", detail: "go test" } }), snap);
+    assert.equal(await panel.locator(".mn-reply").textContent(), "Fixed the bug in app.go.", "tray panel shows the latest reply");
+    await panel.fill(".mn-input textarea", "run the tests");
+    await panel.press(".mn-input textarea", "Enter");
+    await panel.click('.mn-ask [data-d="allow"]');
     await panel.click('[data-a="hide"]');
     const posted = await panel.evaluate(() => posted);
     assert.ok(posted.some((m) => m.startsWith("h:")) && posted.includes("hide"), "tray panel reports its height and actions");
+    assert.ok(posted.includes('send:{"tab":1,"text":"run the tests"}'), "a prompt typed in the panel is sent");
+    assert.ok(posted.includes('ask:{"tab":1,"req":"r9","d":"allow"}'), "a permission can be answered from the panel");
+    const snap2 = await page.evaluate(() => traySnapshot());
+    assert.equal(snap2.canSend, true, "a native chat can take messages from the panel");
     await panel.close();
     await page.evaluate(() => {
       window.savedRules = [];

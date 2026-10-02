@@ -977,7 +977,7 @@ function traySnapshot() {
   for (const k of root.style) vars[k] = root.style.getPropertyValue(k);
   const others = [...tabs.values()].filter((t) => t !== tab && t.chat?.busy).length;
   const state = !c ? "No AI chat open" : c.reading ? "Reading the handover" : tab.card ? "Waiting for your answer"
-    : c.busy ? (c.verb || "Working") + "…" : "Done";
+    : c.busy ? (c.verb || "Working") + "…" : c.thread.querySelector(".turn.ai") ? "Done" : "Ready";
   const tools = c?.thread.querySelectorAll(".tool-h");
   const last = tools?.length ? tools[tools.length - 1] : null;
   const dot = last?.querySelector(".tool-dot");
@@ -985,7 +985,14 @@ function traySnapshot() {
   if (q?.five !== undefined) rows.push({ l: "5-hour limit", f: q.five, note: q.fiveReset ? "resets in " + untilText(q.fiveReset) : "" });
   if (q?.week !== undefined) rows.push({ l: "Weekly limit", f: q.week, note: q.weekReset ? "resets " + dayText(q.weekReset) : "" });
   if (c?.ctx && c.window) rows.push({ l: "Context", f: c.ctx / c.window, note: fmtNum(c.ctx) + " / " + fmtNum(c.window) + (c.bytes ? " · " + fmtBytes(c.bytes) + " full" : "") });
+  const turns = c?.thread.querySelectorAll(".turn.ai");
+  const blocks = turns?.length ? turns[turns.length - 1].querySelectorAll(".md") : [];
+  const reply = blocks.length ? blocks[blocks.length - 1].textContent.trim().replace(/\s+/g, " ").slice(0, 400) : "";
+  const pending = c?.asks?.size ? [...c.asks.entries()][0] : null;
+  const ask = pending && { req: pending[0], always: pending[1].always, title: pending[1].el.querySelector(".ak-h b").textContent,
+    detail: (pending[1].el.querySelector(".ak-cmd")?.textContent || pending[1].el.querySelector(".ak-d").textContent).slice(0, 200) };
   return {
+    tab: tab?.id || 0, canSend: !!(tab?.native && c && !c.reading), reply, ask,
     vars, theme: root.dataset.theme || "",
     icon: tab ? icon(tab.profile) : "", ai: tab ? profile(tab.profile).name : "AIT", acct: tab?.account || "",
     state, hasChat: !!c, busy: !!(c?.busy || c?.reading), started: c?.busy ? Date.now() - (performance.now() - c.started) : 0, others,
@@ -1090,6 +1097,13 @@ async function boot() {
   RT().EventsOn("app:close-requested", confirmQuit);
   RT().EventsOn("tray:open", (on) => { trayOpen = on; trayPush(); });
   RT().EventsOn("tray:settings", openSettings);
+  RT().EventsOn("tray:send", (id, text) => {
+    const tab = tabs.get(id);
+    if (!tab?.native || !tab.chat) return;
+    tab.chat.ta.value = text;
+    submit(tab);
+  });
+  RT().EventsOn("tray:answer", (id, req, d) => { const tab = tabs.get(id); if (tab?.chat) answerAsk(tab, req, d); });
   initSignIn();
   setInterval(() => { const t = tabs.get(active); if (t?.native) renderStatus(t); }, 30000); // keeps "resets in" current
   RT().EventsOn("update:available", showUpdate);
