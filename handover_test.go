@@ -570,3 +570,37 @@ func TestNotificationRemembersTab(t *testing.T) {
 		t.Fatalf("notified tab %d, want 4", got)
 	}
 }
+
+// /export saves the whole conversation, compaction summaries included, to
+// Downloads, named after the first request.
+func TestExportChat(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	revealFile = func(string) {}
+	store, _ := newStoreAt(t.TempDir(), t.TempDir())
+	app := NewApp(store)
+	var b strings.Builder
+	for _, l := range []string{
+		`{"type":"user","message":{"role":"user","content":"Build the tray: panel?"}}`,
+		`{"type":"user","isCompactSummary":true,"message":{"role":"user","content":"Summary: built the panel"}}`,
+		`{"type":"user","message":{"role":"user","content":"now notifications"}}`,
+	} {
+		b.WriteString(l + "\n")
+	}
+	session := filepath.Join(t.TempDir(), "s.jsonl")
+	os.WriteFile(session, []byte(b.String()), 0o644)
+	app.tabs[1] = &Tab{id: 1, agent: registry["claude"], session: session, cwd: home}
+	p, err := app.ExportChat(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := os.ReadFile(p)
+	if filepath.Dir(p) != filepath.Join(home, "Downloads") || !strings.Contains(filepath.Base(p), "Build the tray panel") {
+		t.Fatalf("file %s", p)
+	}
+	for _, want := range []string{"# Chat with Claude", "## User\n\nBuild the tray: panel?", "## Summary of the earlier conversation\n\nSummary: built the panel", "## User\n\nnow notifications"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("export lacks %q", want)
+		}
+	}
+}

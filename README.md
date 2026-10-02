@@ -65,7 +65,7 @@ presets to start from.
 - **Tray.** AIT lives in the tray too: click the icon for a small panel with what the AI is doing,
   its latest reply, usage, and a box to type to it. Hide AIT to the tray and the AI keeps working;
   a Windows notification tells you when it finishes or needs you.
-- **History.** Search and reopen any past conversation (Ctrl+Shift+H); find text inside a chat with Ctrl+F.
+- **History.** Search and reopen any past conversation (Ctrl+Shift+H); find text inside a chat with Ctrl+F, or save one as Markdown with `/export`.
 - **MCP servers.** The plug button next to the model shows the AI's own MCP servers and their
   status, with a switch for each; what you switch off stays off in every chat of that AI.
 - **Two looks.** A terminal style and a desktop chat style, Campbell and PowerShell-blue

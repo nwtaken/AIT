@@ -148,34 +148,7 @@ func (a *App) ContinueOn(id int, providerID string) error {
 
 // writeHandover renders the conversation as markdown for the next AI.
 func (a *App) writeHandover(t *Tab, from Provider, reason string) (string, error) {
-	var evs []Ev
-	if cp := chatOf(from); cp != nil && t.session != "" && fileExists(t.session) {
-		evs = cp.ChatHistory(t.session)
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "# Conversation handed over from %s\n\n", from.Name())
-	fmt.Fprintf(&b, "%s %s. Working folder: %s\n\n", from.Name(), reason, t.cwd)
-	tools := map[string]string{}
-	for _, e := range evs {
-		switch e["k"] {
-		case "user":
-			fmt.Fprintf(&b, "## User\n\n%s\n\n", e["text"])
-		case "text":
-			fmt.Fprintf(&b, "## %s\n\n%s\n\n", from.Name(), e["text"])
-		case "tool":
-			name, _ := e["name"].(string)
-			id, _ := e["id"].(string)
-			tools[id] = name
-			fmt.Fprintf(&b, "- %s\n", toolLine(name, e["input"]))
-		case "result":
-			if ok, _ := e["ok"].(bool); !ok {
-				id, _ := e["id"].(string)
-				text, _ := e["text"].(string)
-				fmt.Fprintf(&b, "  - %s failed: %s\n", tools[id], firstLine(text))
-			}
-		}
-	}
-	text := b.String()
+	text := conversationMarkdown(t, from, fmt.Sprintf("# Conversation handed over from %s\n\n%s %s. Working folder: %s\n\n", from.Name(), from.Name(), reason, t.cwd))
 	if len(text) > handoverLimit {
 		text = trimHandover(text)
 	}
@@ -197,6 +170,41 @@ func trimHandover(text string) string {
 		tail = tail[i+1:]
 	}
 	return head + "\n\n[… earlier part of the conversation left out …]\n\n" + tail
+}
+
+// conversationMarkdown writes a tab's conversation as markdown: the user's
+// messages, the AI's replies, its compaction summaries, the commands it ran
+// and the files it changed.
+func conversationMarkdown(t *Tab, from Provider, header string) string {
+	var evs []Ev
+	if cp := chatOf(from); cp != nil && t.session != "" && fileExists(t.session) {
+		evs = cp.ChatHistory(t.session)
+	}
+	var b strings.Builder
+	b.WriteString(header)
+	tools := map[string]string{}
+	for _, e := range evs {
+		switch e["k"] {
+		case "user":
+			fmt.Fprintf(&b, "## User\n\n%s\n\n", e["text"])
+		case "summary":
+			fmt.Fprintf(&b, "## Summary of the earlier conversation\n\n%s\n\n", e["text"])
+		case "text":
+			fmt.Fprintf(&b, "## %s\n\n%s\n\n", from.Name(), e["text"])
+		case "tool":
+			name, _ := e["name"].(string)
+			id, _ := e["id"].(string)
+			tools[id] = name
+			fmt.Fprintf(&b, "- %s\n", toolLine(name, e["input"]))
+		case "result":
+			if ok, _ := e["ok"].(bool); !ok {
+				id, _ := e["id"].(string)
+				text, _ := e["text"].(string)
+				fmt.Fprintf(&b, "  - %s failed: %s\n", tools[id], firstLine(text))
+			}
+		}
+	}
+	return b.String()
 }
 
 func toolLine(name string, input any) string {

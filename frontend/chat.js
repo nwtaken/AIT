@@ -15,6 +15,7 @@ const LOCAL_COMMANDS = [
   { name: "model", desc: "Switch the model" },
   { name: "folder", desc: "Change the working folder" },
   { name: "history", desc: "Open past chats" },
+  { name: "export", desc: "Save this conversation as a Markdown file in Downloads" },
   { name: "supereview", desc: "Let the AI ask another AI to review its finished work (on/off) · 2+ connected accounts required" },
 ];
 
@@ -926,6 +927,9 @@ function runLocal(tab, text) {
     }
     case "folder": changeFolder(tab); return true;
     case "history": toggleHistory(); return true;
+    case "export":
+      API().ExportChat(tab.id).then((p) => sysLine(tab.chat, "Saved to " + p, "ok")).catch((err) => toast(String(err)));
+      return true;
     case "supereview":
       // An on/off switch: while on, the AI may ask another AI to review its
       // work once it thinks it is finished. Nothing happens on its own.
