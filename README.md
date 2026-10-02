@@ -24,9 +24,12 @@ AIT updates itself: when a new version is out, an **Update** button appears in t
 > AIT isn't code-signed yet, so Windows SmartScreen may say it doesn't recognise the app the
 > first time. Choose **More info → Run anyway**. Every release lists its SHA-256 checksum.
 
-### You also need
+### The AI tools
 
-At least one AI command-line tool, signed in to your account:
+AIT runs each AI's own command-line tool. On first start, the setup wizard installs the ones
+you don't have yet (Claude Code, Codex for ChatGPT, Gemini CLI), and you can switch off any you
+don't want. Codex and Gemini need Node.js; if it's missing, AIT installs it from nodejs.org
+and Windows asks for permission. To install a tool yourself instead:
 
 | AI | Install |
 |---|---|
@@ -35,6 +38,9 @@ At least one AI command-line tool, signed in to your account:
 | Gemini | `npm install -g @google/gemini-cli` |
 
 AIT finds them by itself and uses the accounts you are already signed in with.
+
+**AI rules.** The rules every AI follows first are edited in the app (menu → AI rules), with ten
+presets to start from.
 
 ## Features
 

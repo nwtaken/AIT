@@ -219,6 +219,7 @@ body:not(.desk) .sl-folder { margin-left: auto; padding-left: 16px; color: var(-
 .su-row .radio { width: 16px; height: 16px; margin-top: 2px; flex: none; border-radius: 50%; border: 1px solid var(--muted); display: grid; place-items: center; }
 .su-row.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .su-row.on .radio { border-color: var(--accent); } .su-row.on .radio::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.su-agent .su-state.bad { color: var(--err); }
 .su-agent { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--hair); animation: turnIn .35s var(--ease) both; }
 .su-agent:nth-child(2) { animation-delay: .06s; } .su-agent:nth-child(3) { animation-delay: .12s; }
 .su-agent .icon { width: 22px; display: grid; place-items: center; } .su-agent .icon svg { width: 20px; height: 20px; }

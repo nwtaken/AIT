@@ -26,7 +26,8 @@ function runSetup() {
       el.querySelector(".su-step").classList.add("enter");
       el.querySelector("input, .su-next")?.focus();
     }
-    function next() { if (step < steps.length - 1) { step++; show(); } else finish(); }
+    let hold = null; // a step that must finish something before moving on
+    function next() { if (hold) return hold(); if (step < steps.length - 1) { step++; show(); } else finish(); }
     function back() { if (step > 0) { step--; show(); } }
     const nav = (label = "Continue", first) => `<div class="su-nav">${first ? "" : '<button class="btn quiet su-back">Back</button>'}<button class="btn go su-next">${label} <kbd>Enter</kbd></button></div>`;
     const wire = (box) => {
@@ -77,24 +78,55 @@ function runSetup() {
       wire(box);
     }
     async function agents(box) {
-      box.innerHTML = `<h2>Your AI tools</h2><p>AIT works with the command-line tools you have installed, using the accounts you're signed in to.</p><div class="su-list su-agents"></div>${nav("Start using AIT")}`;
+      box.innerHTML = `<h2>Your AI tools</h2><p>AIT runs each AI's own command-line tool, with the accounts you sign in to. Missing tools can be installed now; switch off any you don't want.</p><div class="su-list su-agents"></div>${nav("Start using AIT")}`;
       wire(box);
       const list = await API().Agents();
-      const holder = box.querySelector(".su-agents");
+      const holder = box.querySelector(".su-agents"), go = box.querySelector(".su-next");
+      const want = new Set(), rows = {};
+      const label = () => { go.firstChild.textContent = want.size ? "Install and start " : "Start using AIT "; };
       for (const a of list) {
         const row = document.createElement("div");
         row.className = "su-agent";
-        const state = !a.installed ? "Not installed" : a.signedIn ? `Signed in${a.email ? " as " + a.email : ""}` : "Installed. You'll sign in on first use.";
-        row.innerHTML = `<span class="icon">${icon(a.id)}</span><span><b>${esc(a.name)}</b><span>${esc(state)}</span></span>`;
-        if (!a.installed && INSTALL_HINT[a.id]) {
-          const b = document.createElement("button");
-          b.className = "btn quiet";
-          b.textContent = "Copy install command";
-          b.addEventListener("click", () => { RT().ClipboardSetText(INSTALL_HINT[a.id]); b.textContent = "Copied"; });
-          row.append(b);
-        } else row.insertAdjacentHTML("beforeend", `<span class="su-ok ${a.installed && a.signedIn ? "" : "dim"}">${a.installed && a.signedIn ? "✓" : "–"}</span>`);
+        const state = !a.installed ? "Not installed. AIT will install it." : a.signedIn ? `Signed in${a.email ? " as " + a.email : ""}` : "Installed. You'll sign in on first use.";
+        row.innerHTML = `<span class="icon">${icon(a.id)}</span><span><b>${esc(a.name)}</b><span class="su-state">${esc(state)}</span></span>`;
+        if (!a.installed) {
+          want.add(a.id);
+          const sw = document.createElement("button");
+          sw.className = "switch on"; sw.setAttribute("role", "switch"); sw.title = "Install " + a.name;
+          sw.innerHTML = "<i></i>";
+          sw.addEventListener("click", () => {
+            const on = !want.has(a.id);
+            on ? want.add(a.id) : want.delete(a.id);
+            sw.classList.toggle("on", on);
+            row.querySelector(".su-state").textContent = on ? "Not installed. AIT will install it." : "Not installed. Skipped.";
+            label();
+          });
+          row.append(sw);
+        } else row.insertAdjacentHTML("beforeend", `<span class="su-ok ${a.signedIn ? "" : "dim"}">${a.signedIn ? "✓" : "–"}</span>`);
+        rows[a.id] = row;
         holder.append(row);
       }
+      label();
+      hold = async () => {
+        if (!want.size) { hold = null; return next(); }
+        if (go.disabled) return;
+        go.disabled = true;
+        box.querySelector(".su-back")?.setAttribute("disabled", "");
+        box.querySelectorAll(".su-agent .switch").forEach((b) => b.remove());
+        const off = RT().EventsOn("install:progress", (id, state, msg) => {
+          const st = rows[id]?.querySelector(".su-state");
+          if (!st) return;
+          st.textContent = state === "installing" ? "Installing…" : state === "done" ? "Installed. You'll sign in on first use." : "Could not install: " + msg;
+          st.classList.toggle("bad", state === "failed");
+        });
+        await API().InstallAgents([...want]);
+        off?.();
+        want.clear();
+        hold = null;
+        go.disabled = false;
+        label();
+        go.focus();
+      };
     }
 
     async function finish() {

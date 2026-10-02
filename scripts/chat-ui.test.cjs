@@ -91,8 +91,29 @@ const assert = require("node:assert/strict");
     await page.click(".rl-save");
     assert.deepEqual(await page.evaluate(() => savedRules), ["rule a"], "a preset can be picked and saved");
     await page.evaluate(() => closeRules());
+    await page.evaluate(() => {
+      window.installed = null; const handlers = {};
+      window.runtime = { ...(window.runtime || {}), EventsOn: (n, cb) => { handlers[n] = cb; return () => {}; } };
+      Object.assign(go.main.App, {
+        Agents: async () => [{ id: "claude", name: "Claude", installed: true, signedIn: true }, { id: "codex", name: "ChatGPT", installed: false }, { id: "gemini", name: "Gemini", installed: false }],
+        InstallAgents: async (ids) => { installed = ids; for (const id of ids) handlers["install:progress"](id, id === "codex" ? "done" : "failed", "no network"); },
+        SaveSettings: async () => {},
+      });
+      window.setupDone = runSetup();
+    });
+    for (let i = 0; i < 4; i++) await page.click(".su-next");
+    await page.waitForSelector(".su-agent .switch");
+    assert.match(await page.locator(".su-next").textContent(), /Install and start/, "missing tools are offered for install");
+    await page.click(".su-agent:nth-child(3) .switch"); // skip Gemini
+    await page.click(".su-next");
+    await page.waitForFunction(() => installed !== null);
+    assert.deepEqual(await page.evaluate(() => installed), ["codex"], "only the chosen tools install");
+    assert.match(await page.locator(".su-agent:nth-child(2) .su-state").textContent(), /Installed/);
+    assert.match(await page.locator(".su-next").textContent(), /Start using AIT/);
+    await page.click(".su-next");
+    await page.evaluate(() => setupDone);
     assert.deepEqual(errors, []);
-    console.log("Chat UI: focus, selection, controls, handover progress, Escape, model display, tab keys, tray panel, and rules editor passed.");
+    console.log("Chat UI: focus, selection, controls, handover progress, Escape, model display, tab keys, tray panel, rules editor, and tool installs passed.");
   } finally {
     await browser.close();
   }
