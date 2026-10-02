@@ -662,3 +662,16 @@ func TestReopenTabs(t *testing.T) {
 		t.Fatal("tabs reopened with reopening switched off")
 	}
 }
+
+// Reopened messages carry the time they were sent.
+func TestHistoryMessageTimes(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "s.jsonl")
+	os.WriteFile(p, []byte(`{"type":"user","timestamp":"2026-10-01T18:43:11.123Z","message":{"role":"user","content":"hello"}}`+"\n"), 0o644)
+	evs := (&claude{}).ChatHistory(p)
+	if len(evs) != 1 || evs[0]["ts"] != int64(1790880191) {
+		t.Fatalf("got %v", evs)
+	}
+	if unixTime("") != 0 {
+		t.Fatal("missing time not 0")
+	}
+}

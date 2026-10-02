@@ -478,8 +478,9 @@ func (c *codex) ChatHistory(path string) []Ev {
 	n := 0
 	for sc.Scan() {
 		var l struct {
-			Type    string `json:"type"`
-			Payload struct {
+			Type      string `json:"type"`
+			Timestamp string `json:"timestamp"`
+			Payload   struct {
 				Type    string          `json:"type"`
 				Message string          `json:"message"`
 				Item    json.RawMessage `json:"item"`
@@ -514,7 +515,7 @@ func (c *codex) ChatHistory(path string) []Ev {
 			switch it.Type {
 			case "UserMessage":
 				if text != "" {
-					items = append(items, Ev{"k": "user", "text": text})
+					items = append(items, Ev{"k": "user", "text": text, "ts": unixTime(l.Timestamp)})
 				}
 			case "AgentMessage":
 				if text != "" {
@@ -538,7 +539,7 @@ func (c *codex) ChatHistory(path string) []Ev {
 			}
 		case "user_message":
 			if t := strings.TrimSpace(l.Payload.Message); t != "" {
-				legacy = append(legacy, Ev{"k": "user", "text": t})
+				legacy = append(legacy, Ev{"k": "user", "text": t, "ts": unixTime(l.Timestamp)})
 			}
 		case "agent_message":
 			if t := strings.TrimSpace(l.Payload.Message); t != "" {

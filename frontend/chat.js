@@ -277,7 +277,7 @@ function chatEvents(tab, evs, live = true) {
         break;
       case "user":
         hideWelcome(c, true);
-        userTurn(c, e.text, [], false);
+        userTurn(c, e.text, [], false, e.ts);
         c.msg = null;
         break;
       case "text":
@@ -433,10 +433,18 @@ function codeBlock(code, lang, complete) {
 
 // ---- user turns -------------------------------------------------------------------
 
-function userTurn(c, text, files, live) {
+// msgTime is when a message was sent: its saved time when the chat is
+// reopened (with the date unless it was today), else now.
+function msgTime(ts) {
+  const d = ts ? new Date(ts * 1000) : new Date();
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return d.toDateString() === new Date().toDateString() ? time : d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " + time;
+}
+
+function userTurn(c, text, files, live, ts) {
   const el = document.createElement("div");
   el.className = "turn user" + (live ? " anim" : "") + (/^\/\S/.test(text) ? " cmd" : "");
-  el.innerHTML = `<span class="u-p">›</span><div class="u-body"><div class="u-text"></div></div><span class="u-time">${new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</span>`;
+  el.innerHTML = `<span class="u-p">›</span><div class="u-body"><div class="u-text"></div></div><span class="u-time">${msgTime(ts)}</span>`;
   el.querySelector(".u-text").textContent = text;
   if (files?.length) {
     const fl = document.createElement("div");

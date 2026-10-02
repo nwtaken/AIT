@@ -544,3 +544,13 @@ func (s *Store) Quota(id string) (Quota, bool) {
 	}
 	return q, ok
 }
+
+// unixTime turns a transcript's RFC 3339 timestamp into unix seconds (0 when
+// missing), so a reopened chat shows when each message was sent.
+func unixTime(s string) int64 {
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return 0
+	}
+	return t.Unix()
+}

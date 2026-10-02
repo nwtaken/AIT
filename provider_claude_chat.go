@@ -535,7 +535,7 @@ func claudeHistory(f io.Reader) []Ev {
 			var s string
 			if json.Unmarshal(l.Message.Content, &s) == nil {
 				if t := strings.TrimSpace(s); t != "" && !strings.HasPrefix(t, "<") {
-					out = append(out, Ev{"k": "user", "text": t})
+					out = append(out, Ev{"k": "user", "text": t, "ts": unixTime(l.Timestamp)})
 				}
 				continue
 			}
@@ -544,7 +544,7 @@ func claudeHistory(f io.Reader) []Ev {
 				continue
 			}
 			if t := strings.TrimSpace(contentText(l.Message.Content)); t != "" && !strings.HasPrefix(t, "<") {
-				out = append(out, Ev{"k": "user", "text": t})
+				out = append(out, Ev{"k": "user", "text": t, "ts": unixTime(l.Timestamp)})
 			}
 		case "assistant":
 			if l.IsAPIErr {

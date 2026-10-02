@@ -180,6 +180,12 @@ const assert = require("node:assert/strict");
     assert.equal(found, "3 of 3", "find counts every match, case-insensitive, starting at the latest");
     assert.deepEqual(stepped, ["1 of 3", 1], "Enter steps to the next match and highlights it");
     assert.deepEqual(closed, [true, false], "Esc closes find and clears the highlights");
+    const times = await page.evaluate(() => {
+      const old = new Date(2026, 0, 5, 14, 30).getTime() / 1000;
+      return [msgTime(old), msgTime(0) === new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })];
+    });
+    assert.match(times[0], /Jan/, "a reopened message from another day shows its date");
+    assert.equal(times[1], true, "a new message shows just the time");
     const reopened = await page.evaluate(async () => {
       const keep = { openTab, activate, profiles: ui.profiles };
       const opened = [], fronts = [];
