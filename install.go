@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -72,10 +73,15 @@ func run(name string, args ...string) error {
 	return nil
 }
 
-// ensureNode returns npm, installing Node.js LTS when it is missing.
+// minNode is the oldest Node.js the tools run on (Gemini CLI needs 20).
+const minNode = 20
+
+// ensureNode returns npm, installing Node.js LTS when it is missing or older
+// than minNode.
 func ensureNode() (string, error) {
 	dir := filepath.Join(os.Getenv("ProgramFiles"), "nodejs")
-	if npm := lookBinary("npm.cmd", filepath.Join(dir, "npm.cmd")); npm != "" {
+	npm := lookBinary("npm.cmd", filepath.Join(dir, "npm.cmd"))
+	if npm != "" && nodeMajor(lookBinary("node", filepath.Join(dir, "node.exe"))) >= minNode {
 		return npm, nil
 	}
 	idx, err := fetch("https://nodejs.org/dist/index.json", 4<<20)
@@ -127,9 +133,22 @@ func ensureNode() (string, error) {
 	}
 	// This process started without Node on its PATH; the agents need it.
 	os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	npm := filepath.Join(dir, "npm.cmd")
+	npm = filepath.Join(dir, "npm.cmd")
 	if !fileExists(npm) {
 		return "", errors.New("Node.js installed, but npm was not found")
 	}
 	return npm, nil
+}
+
+// nodeMajor is node's major version ("v18.20.1" -> 18), 0 when unknown.
+func nodeMajor(node string) int {
+	if node == "" {
+		return 0
+	}
+	cmd := exec.Command(node, "--version")
+	hideConsole(cmd)
+	out, _ := cmd.Output()
+	v := strings.TrimPrefix(strings.TrimSpace(string(out)), "v")
+	n, _ := strconv.Atoi(strings.Split(v, ".")[0])
+	return n
 }

@@ -25,28 +25,53 @@ func (g *gemini) HomeEnv() string     { return "GEMINI_CLI_HOME" }
 func (g *gemini) DefaultHome() string { return filepath.Join(g.userHome, ".gemini") }
 func (g *gemini) PresetsID() bool     { return false }
 
+// Command runs the npm package's script through node: npm's default global
+// folder first, then wherever the "gemini" command on PATH lives. The script
+// moved from dist/index.js to bundle/gemini.js in later versions.
 func (g *gemini) Command() []string {
-	if d, err := os.UserConfigDir(); err == nil {
-		js := filepath.Join(d, "npm", "node_modules", "@google", "gemini-cli", "dist", "index.js")
-		if node := lookBinary("node"); node != "" && fileExists(js) {
-			return []string{node, js}
-		}
+	cli := lookBinary("gemini")
+	if strings.EqualFold(filepath.Ext(cli), ".exe") {
+		return []string{cli}
 	}
-	if p := lookBinary("gemini"); p != "" && filepath.Ext(p) == ".exe" {
-		return []string{p}
+	node := lookBinary("node", filepath.Join(os.Getenv("ProgramFiles"), "nodejs", "node.exe"))
+	if node == "" {
+		return nil
+	}
+	var roots []string
+	if d, err := os.UserConfigDir(); err == nil {
+		roots = append(roots, filepath.Join(d, "npm"))
+	}
+	if cli != "" {
+		roots = append(roots, filepath.Dir(cli))
+	}
+	for _, r := range roots {
+		for _, rel := range []string{"bundle/gemini.js", "dist/index.js"} {
+			if js := filepath.Join(r, "node_modules", "@google", "gemini-cli", rel); fileExists(js) {
+				return []string{node, js}
+			}
+		}
 	}
 	return nil
 }
 
+// dir is where Gemini keeps its files for an account home: GEMINI_CLI_HOME
+// stands in for the user's home folder, so an account folder holds .gemini.
+func (g *gemini) dir(home string) string {
+	if filepath.Base(home) == ".gemini" {
+		return home
+	}
+	return filepath.Join(home, ".gemini")
+}
+
 func (g *gemini) SignedIn(home string) bool {
-	return fileExists(filepath.Join(home, "oauth_creds.json")) || os.Getenv("GEMINI_API_KEY") != ""
+	return fileExists(filepath.Join(g.dir(home), "oauth_creds.json")) || os.Getenv("GEMINI_API_KEY") != ""
 }
 
 func (g *gemini) Email(home string) string {
 	var a struct {
 		Active string `json:"active"`
 	}
-	if b, err := os.ReadFile(filepath.Join(home, "google_accounts.json")); err == nil {
+	if b, err := os.ReadFile(filepath.Join(g.dir(home), "google_accounts.json")); err == nil {
 		json.Unmarshal(b, &a)
 	}
 	return a.Active

@@ -394,3 +394,31 @@ func TestSavedRulesArePriority(t *testing.T) {
 		t.Fatalf("want 10 presets, got %d", len(app.GetRules().Presets))
 	}
 }
+
+// Gemini is found at the npm package's current script, and an extra
+// account's sign-in is read from the .gemini folder inside it.
+func TestGeminiLookupAndAccountFolder(t *testing.T) {
+	if lookBinary("node") == "" {
+		t.Skip("node not installed")
+	}
+	appdata := t.TempDir()
+	t.Setenv("APPDATA", appdata)
+	t.Setenv("PATH", filepath.Dir(lookBinary("node")))
+	g := &gemini{userHome: t.TempDir()}
+	if g.Command() != nil {
+		t.Fatal("found Gemini where none is installed")
+	}
+	js := filepath.Join(appdata, "npm", "node_modules", "@google", "gemini-cli", "bundle", "gemini.js")
+	os.MkdirAll(filepath.Dir(js), 0o755)
+	os.WriteFile(js, nil, 0o644)
+	if cmd := g.Command(); len(cmd) != 2 || cmd[1] != js {
+		t.Fatalf("Gemini not found at bundle/gemini.js: %v", cmd)
+	}
+	acct := t.TempDir()
+	os.MkdirAll(filepath.Join(acct, ".gemini"), 0o755)
+	os.WriteFile(filepath.Join(acct, ".gemini", "oauth_creds.json"), []byte("{}"), 0o644)
+	t.Setenv("GEMINI_API_KEY", "")
+	if !g.SignedIn(acct) || g.SignedIn(t.TempDir()) {
+		t.Fatal("account sign-in not read from its .gemini folder")
+	}
+}
