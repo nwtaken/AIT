@@ -626,6 +626,7 @@ func TestTrimHandoverKeepsLatestSummary(t *testing.T) {
 func TestReopenTabs(t *testing.T) {
 	store, _ := newStoreAt(t.TempDir(), t.TempDir())
 	app := NewApp(store)
+	app.LastTabs() // the page reads last time's tabs at start
 	dir := t.TempDir()
 	file := func(name string, n int) string {
 		p := filepath.Join(dir, name)
@@ -680,6 +681,7 @@ func TestHistoryMessageTimes(t *testing.T) {
 func TestReopenTabsKeepsDraft(t *testing.T) {
 	store, _ := newStoreAt(t.TempDir(), t.TempDir())
 	app := NewApp(store)
+	app.LastTabs() // the page reads last time's tabs at start
 	p := filepath.Join(t.TempDir(), "a.jsonl")
 	os.WriteFile(p, []byte("x"), 0o644)
 	tab := &Tab{id: 1, agent: registry["claude"], profile: "claude", session: p}
@@ -1012,5 +1014,25 @@ func TestClaudeMcpStatusCategories(t *testing.T) {
 	servers := evs[0]["servers"].([]map[string]any)
 	if servers[0]["category"] != "Roblox" || servers[1]["category"] != "Websites" || servers[1]["tools"] != 1 {
 		t.Fatalf("got %v", servers)
+	}
+}
+
+// The agent prewarmed while the window loads saves nothing over last time's
+// tabs before the page has read them.
+func TestPrewarmKeepsLastTabs(t *testing.T) {
+	root := t.TempDir()
+	store, _ := newStoreAt(root, t.TempDir())
+	ref := filepath.Join(t.TempDir(), "a.jsonl")
+	os.WriteFile(ref, []byte("x"), 0o644)
+	b, _ := json.Marshal([]SavedTab{{Provider: "claude", Ref: ref, Active: true}})
+	os.WriteFile(filepath.Join(root, "tabs.json"), b, 0o644)
+	app := NewApp(store)
+	standby := &Tab{agent: registry["claude"], profile: "claude"} // not a tab yet
+	standby.mu.Lock()
+	app.claim(standby, filepath.Join(t.TempDir(), "new.jsonl"))
+	standby.mu.Unlock()
+	time.Sleep(700 * time.Millisecond) // the queued save has run
+	if got := app.LastTabs(); len(got) != 1 || got[0].Ref != ref {
+		t.Fatalf("last time's tabs were lost: %+v", got)
 	}
 }

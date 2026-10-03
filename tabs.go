@@ -26,6 +26,7 @@ type tabsSaver struct {
 	sync.Mutex
 	timer *time.Timer
 	done  bool // AIT is quitting: the final save is written
+	read  bool // the page has read last time's tabs; nothing is saved before
 }
 
 func (s *Store) tabsPath() string { return filepath.Join(s.root, "tabs.json") }
@@ -57,7 +58,15 @@ func (a *App) finalTabsSave() {
 }
 
 // saveOpenTabs writes the AI tabs that have a conversation, oldest first.
+// Not before the page has read last time's list: the agent prewarmed while
+// the window loads would otherwise save an empty list over it.
 func (a *App) saveOpenTabs() {
+	a.tabsSave.Lock()
+	read := a.tabsSave.read
+	a.tabsSave.Unlock()
+	if !read {
+		return
+	}
 	a.mu.Lock()
 	var tabs []*Tab
 	for _, t := range a.tabs {
@@ -103,6 +112,11 @@ func (a *App) SetActiveTab(id int) {
 // LastTabs lists the tabs to reopen: those whose conversation is still on
 // disk, unless the user switched reopening off.
 func (a *App) LastTabs() []SavedTab {
+	defer func() {
+		a.tabsSave.Lock()
+		a.tabsSave.read = true
+		a.tabsSave.Unlock()
+	}()
 	out := []SavedTab{}
 	if !a.store.Config().reopenTabs() {
 		return out
