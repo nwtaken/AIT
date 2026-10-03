@@ -1213,6 +1213,12 @@ async function boot() {
     }
   });
   document.addEventListener("contextmenu", (e) => e.preventDefault());
+  // No web page ever loads inside AIT's window: any link not handled
+  // already opens in the browser.
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest?.("a[href]");
+    if (a && !e.defaultPrevented && /^https?:/i.test(a.href)) { e.preventDefault(); RT().BrowserOpenURL(a.href); }
+  });
   window.addEventListener("wheel", (e) => {
     if (!e.ctrlKey) return;
     e.preventDefault();

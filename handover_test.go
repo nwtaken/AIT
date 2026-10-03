@@ -823,8 +823,16 @@ func TestReviewerStepsAndUnstreamedFindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Close(1)
-	time.Sleep(500 * time.Millisecond)
 	tab := a.tab(1)
+	for i := 0; i < 100; i++ { // the agent's init claims its transcript; set ours after it
+		tab.mu.Lock()
+		ready := tab.sessionID != ""
+		tab.mu.Unlock()
+		if ready {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	tab.mu.Lock()
 	tab.session = filepath.Join(t.TempDir(), "s.jsonl")
 	os.WriteFile(tab.session, []byte(`{"type":"user","message":{"role":"user","content":"please QUIET-REVIEW this"}}`+"\n"), 0o644)
@@ -845,5 +853,55 @@ func TestReviewerStepsAndUnstreamedFindings(t *testing.T) {
 		}
 	case <-time.After(8 * time.Second):
 		t.Fatal("review never finished")
+	}
+}
+
+// One review per message from the user: asking again after the feedback is
+// refused (the AI is told to finish) instead of starting another review.
+func TestOneReviewPerRequest(t *testing.T) {
+	t.Setenv("AIT_FAKE_REVIEW_LOOP", "1") // the fake AI asks again after the feedback
+	root, home, cwd := t.TempDir(), t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o644)
+	cfg := Config{Accounts: []Account{{ID: "main", Label: "Claude 1"}, {ID: "other", Label: "ChatGPT 1", Provider: "codex"}},
+		StartingDir: cwd, AIOrder: []string{"claude", "codex"}, Review: true}
+	b, _ := json.Marshal(cfg)
+	os.WriteFile(filepath.Join(root, "config.json"), b, 0o644)
+	t.Setenv("AIT_FAKE_CLI", "1")
+	s, _ := newStoreAt(root, home)
+	cl := registry["claude"].(*claude)
+	registry["claude"] = fakeChat{cl}
+	registry["codex"] = fakeOther{fakeChat{cl}}
+	a := NewApp(s)
+	got := make(chan string, 16)
+	a.emit = func(event string, data ...any) {
+		switch event {
+		case "review:start", "review:done":
+			got <- event
+		case "review:error":
+			got <- "error: " + data[1].(string)
+		}
+	}
+	if _, err := a.Open(OpenRequest{ID: 1, Profile: "claude", Account: "main", Cols: 80, Rows: 24}); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close(1)
+	time.Sleep(500 * time.Millisecond)
+	a.ChatSend(1, "review me", nil)
+	want := []string{"review:start", "review:done", "error: this request was already reviewed; finish it now"}
+	for _, w := range want {
+		select {
+		case e := <-got:
+			if e != w {
+				t.Fatalf("got %q, want %q", e, w)
+			}
+		case <-time.After(8 * time.Second):
+			t.Fatalf("no %q", w)
+		}
+	}
+	select {
+	case e := <-got:
+		t.Fatalf("unexpected %q: a second review started", e)
+	case <-time.After(1500 * time.Millisecond):
 	}
 }

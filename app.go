@@ -53,8 +53,11 @@ type Tab struct {
 	// working is true from a message until the AI's turn ends, so a switch
 	// made mid-turn tells the next account to carry on.
 	working atomic.Bool
-	backMu  sync.Mutex
-	backlog []byte
+	// reviewed is true once a review ran for the user's latest message
+	// (chat.go): one review per request.
+	reviewed atomic.Bool
+	backMu   sync.Mutex
+	backlog  []byte
 	// Native chat (chat.go): the agent runs in streaming mode, no PTY.
 	native    bool
 	chat      *chatProc

@@ -122,6 +122,9 @@ func fakeClaudeStream() {
 			w(`{"type":"result","subtype":"success","is_error":false,"duration_ms":12,"total_cost_usd":0}`)
 			continue
 		}
+		if strings.HasPrefix(text, "Independent review from") && os.Getenv("AIT_FAKE_REVIEW_LOOP") == "1" {
+			text = "review me again" // an AI that asks for another review after getting one
+		}
 		if strings.HasPrefix(text, "review me") { // asks for a review the way real Claude does: thinking, then the marker
 			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"mr","usage":{"input_tokens":5}}}}`)
 			w(`{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}}`)

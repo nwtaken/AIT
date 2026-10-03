@@ -214,12 +214,18 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 			go func() {
 				err := errors.New("it is switched off (/supereview)")
 				if a.store.Config().Review {
-					err = a.Review(t.id)
+					// One review per message from the user: an AI asking again
+					// is told to finish instead of spending usage in a loop.
+					if t.reviewed.Swap(true) {
+						err = errors.New("this request was already reviewed; finish it now")
+					} else {
+						err = a.Review(t.id)
+					}
 				}
 				// Never leave the AI waiting on a review that will not come.
 				if err != nil {
 					a.emit("review:error", t.id, err.Error())
-					a.ChatSend(t.id, "The requested independent review is unavailable: "+err.Error()+". Continue the user's request without it.", nil)
+					a.chatSend(t.id, "The requested independent review is unavailable: "+err.Error()+". Continue the user's request without it.", nil)
 				}
 			}()
 		}
@@ -262,6 +268,15 @@ func (t *Tab) acctID() string {
 // ChatSend sends a message. files are paths: images go as images, anything
 // else is named in the text so the agent can open it.
 func (a *App) ChatSend(id int, text string, files []string) error {
+	if t := a.tab(id); t != nil {
+		t.reviewed.Store(false) // a new message from the user may be reviewed again
+	}
+	return a.chatSend(id, text, files)
+}
+
+// chatSend sends a message to the tab's AI; AIT's own notes to it use this
+// directly, so they do not count as a new request from the user.
+func (a *App) chatSend(id int, text string, files []string) error {
 	t := a.tab(id)
 	if t == nil {
 		return fmt.Errorf("no tab")
