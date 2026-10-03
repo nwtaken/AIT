@@ -397,6 +397,13 @@ function renderMarkdown(b, text, finished) {
   while (b.kids.length > tokens.length) b.kids.pop().el.remove();
 }
 
+// mdInto renders markdown into el; its links open in the browser, never in
+// AIT's own window.
+function mdInto(el, text) {
+  el.innerHTML = marked.parse(text || "");
+  el.querySelectorAll("a").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); RT().BrowserOpenURL(a.href); }));
+}
+
 function tokenEl(tok, complete) {
   if (tok.type === "code") return codeBlock(tok.text, tok.lang || "", complete);
   const wrap = document.createElement("div");
@@ -711,7 +718,7 @@ function summaryCard(c, text) {
   el.className = "summary-card";
   el.open = true;
   el.innerHTML = `<summary><span class="mdl">&#xE8BC;</span> Summary of the earlier conversation <em>written by the AI when it compacted</em></summary><div class="md"></div>`;
-  el.querySelector(".md").innerHTML = marked.parse(text.replace(/^This session is being continued[^\n]*\n+/, ""));
+  mdInto(el.querySelector(".md"), text.replace(/^This session is being continued[^\n]*\n+/, ""));
   c.thread.append(el);
 }
 
@@ -843,7 +850,7 @@ function reviewState(tab, state, name, feedback = "") {
   if (!c.reviewEl || state === "start") {
     c.reviewEl = document.createElement("div");
     c.reviewEl.className = "review-card";
-    c.reviewEl.innerHTML = '<b role="status" aria-live="polite"></b><progress></progress><div class="review-step"></div><div class="review-body"></div>';
+    c.reviewEl.innerHTML = '<b role="status" aria-live="polite"></b><progress></progress><div class="review-step"></div><div class="review-body md"></div>';
     c.thread.append(c.reviewEl);
   }
   const bar = c.reviewEl.querySelector("progress");
@@ -852,7 +859,7 @@ function reviewState(tab, state, name, feedback = "") {
     state === "done" ? `${name} reviewed the work. The AI is acting on it.` : "The review could not run";
   bar.hidden = state === "error";
   if (state === "start") bar.removeAttribute("value"); else bar.value = 1;
-  c.reviewEl.querySelector(".review-body").textContent = feedback;
+  mdInto(c.reviewEl.querySelector(".review-body"), feedback);
   if (state !== "start") c.reviewEl.querySelector(".review-step").textContent = "";
   c.reviewing = state === "start";
   // While the other AI reviews, the busy line says so (with its timer); the

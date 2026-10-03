@@ -221,7 +221,7 @@
 .pi.disabled { opacity: .45; cursor: not-allowed; }
 .review-card { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--hair); border-radius: 8px; background: var(--soft); }
 .review-card b { color: var(--accent); }
-.review-card .review-body { margin-top: 8px; color: var(--text); white-space: pre-wrap; font: 12px/1.55 var(--mono); }
+.review-card .review-body { margin-top: 8px; color: var(--text); }
 .review-card.failed b { color: var(--err); }
 .review-card progress { display: block; width: min(100%, 360px); height: 6px; margin-top: 8px; accent-color: var(--accent); }
 .review-card progress[hidden] { display: none; }
