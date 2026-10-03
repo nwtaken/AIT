@@ -116,6 +116,10 @@ func fakeClaudeStream() {
 			w(`{"type":"result","subtype":"success","is_error":false,"duration_ms":12,"total_cost_usd":0}`)
 			continue
 		}
+		if strings.Contains(text, "second AI reviewing") && strings.Contains(text, "FAIL-REVIEW") { // a reviewer whose turn fails
+			w(`{"type":"result","subtype":"error","is_error":true,"result":"reviewer broke","duration_ms":12,"total_cost_usd":0}`)
+			continue
+		}
 		if text == "review quietly" { // the marker only in the complete message, no deltas
 			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"mq","usage":{"input_tokens":5}}}}`)
 			w(`{"type":"assistant","message":{"id":"mq","content":[{"type":"text","text":"[[AIT_SUPEREVIEW]]"}]}}`)

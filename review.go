@@ -133,6 +133,8 @@ func (a *App) finishReview(t *Tab, gen int64, p Provider, acct Account, prompt s
 	t.mu.Unlock()
 	if err != nil {
 		a.emit("review:error", t.id, err.Error())
+		// The AI ended its turn waiting for this review: tell it to go on.
+		a.chatSend(t.id, "The independent review failed: "+err.Error()+". Continue the user's request without it.", nil)
 		return
 	}
 	a.emit("review:done", t.id, p.Name(), feedback)

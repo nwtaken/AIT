@@ -856,6 +856,67 @@ func TestReviewerStepsAndUnstreamedFindings(t *testing.T) {
 	}
 }
 
+// A reviewer that fails does not leave the AI waiting for its feedback.
+func TestReviewerFailureContinues(t *testing.T) {
+	root, home, cwd := t.TempDir(), t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o644)
+	cfg := Config{Accounts: []Account{{ID: "main", Label: "Claude 1"}, {ID: "other", Label: "ChatGPT 1", Provider: "codex"}},
+		StartingDir: cwd, AIOrder: []string{"claude", "codex"}, Review: true}
+	b, _ := json.Marshal(cfg)
+	os.WriteFile(filepath.Join(root, "config.json"), b, 0o644)
+	t.Setenv("AIT_FAKE_CLI", "1")
+	s, _ := newStoreAt(root, home)
+	cl := registry["claude"].(*claude)
+	registry["claude"] = fakeChat{cl}
+	registry["codex"] = fakeOther{fakeChat{cl}}
+	a := NewApp(s)
+	got := make(chan string, 64)
+	a.emit = func(event string, data ...any) {
+		switch event {
+		case "review:error":
+			got <- "error"
+		case "review:done":
+			got <- "done"
+		case "chat:ev":
+			for _, e := range data[1].([]Ev) {
+				if txt, _ := e["text"].(string); e["k"] == "delta" && strings.Contains(txt, "Continue the user's request without it") {
+					got <- "told"
+				}
+			}
+		}
+	}
+	if _, err := a.Open(OpenRequest{ID: 1, Profile: "claude", Account: "main", Cols: 80, Rows: 24}); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close(1)
+	tab := a.tab(1)
+	for i := 0; i < 100; i++ { // the agent's init claims its transcript; set ours after it
+		tab.mu.Lock()
+		ready := tab.sessionID != ""
+		tab.mu.Unlock()
+		if ready {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	tab.mu.Lock()
+	tab.session = filepath.Join(t.TempDir(), "s.jsonl")
+	os.WriteFile(tab.session, []byte(`{"type":"user","message":{"role":"user","content":"please FAIL-REVIEW this"}}`+"\n"), 0o644)
+	tab.mu.Unlock()
+	a.ChatSend(1, "review me", nil)
+	for _, want := range []string{"error", "told"} {
+		select {
+		case e := <-got:
+			if e != want {
+				t.Fatalf("got %s, want %s", e, want)
+			}
+		case <-time.After(8 * time.Second):
+			t.Fatalf("no %s: the AI was left waiting", want)
+		}
+	}
+}
+
 // One review per message from the user: asking again after the feedback is
 // refused (the AI is told to finish) instead of starting another review.
 func TestOneReviewPerRequest(t *testing.T) {
