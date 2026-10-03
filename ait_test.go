@@ -102,6 +102,23 @@ func fakeClaudeStream() {
 			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"m0","usage":{"input_tokens":5}}}}`)
 			continue
 		}
+		if text == "review quietly" { // the marker only in the complete message, no deltas
+			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"mq","usage":{"input_tokens":5}}}}`)
+			w(`{"type":"assistant","message":{"id":"mq","content":[{"type":"text","text":"[[AIT_SUPEREVIEW]]"}]}}`)
+			w(`{"type":"result","subtype":"success","is_error":false,"duration_ms":12,"total_cost_usd":0}`)
+			continue
+		}
+		if text == "review me" { // asks for a review the way real Claude does: thinking, then the marker
+			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"mr","usage":{"input_tokens":5}}}}`)
+			w(`{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}}`)
+			w(`{"type":"stream_event","event":{"type":"content_block_stop","index":0}}`)
+			w(`{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"text"}}}`)
+			w(`{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"[[AIT_SUPER"}}}`)
+			w(`{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"EVIEW]]"}}}`)
+			w(`{"type":"stream_event","event":{"type":"content_block_stop","index":1}}`)
+			w(`{"type":"result","subtype":"success","is_error":false,"duration_ms":12,"total_cost_usd":0}`)
+			continue
+		}
 		if text == "ask" {
 			w(`{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{"file_path":"x.txt"},"permission_suggestions":[{"type":"setMode"}]}}`)
 			sc.Scan() // the control_response

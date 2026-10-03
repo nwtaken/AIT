@@ -691,3 +691,92 @@ func TestReopenTabsKeepsDraft(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+// The AI asking for a review ([[AIT_SUPEREVIEW]] as its whole reply) starts
+// one when /supereview is on, and the feedback goes back to it.
+func TestReviewMarkerStartsReview(t *testing.T) {
+	for _, prompt := range []string{"review me", "review quietly"} {
+		t.Run(prompt, func(t *testing.T) { reviewMarker1(t, prompt) })
+	}
+}
+
+func reviewMarker1(t *testing.T, prompt string) {
+	root, home, cwd := t.TempDir(), t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o644)
+	cfg := Config{Accounts: []Account{{ID: "main", Label: "Claude 1"}, {ID: "other", Label: "ChatGPT 1", Provider: "codex"}},
+		StartingDir: cwd, AIOrder: []string{"claude", "codex"}, Review: true}
+	b, _ := json.Marshal(cfg)
+	os.WriteFile(filepath.Join(root, "config.json"), b, 0o644)
+	t.Setenv("AIT_FAKE_CLI", "1")
+	s, _ := newStoreAt(root, home)
+	cl := registry["claude"].(*claude)
+	registry["claude"] = fakeChat{cl}
+	registry["codex"] = fakeOther{fakeChat{cl}}
+	a := NewApp(s)
+	got := make(chan string, 16)
+	a.emit = func(event string, data ...any) {
+		switch event {
+		case "review:start", "review:done", "review:error":
+			got <- event
+		}
+	}
+	if _, err := a.Open(OpenRequest{ID: 1, Profile: "claude", Account: "main", Cols: 80, Rows: 24}); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close(1)
+	time.Sleep(500 * time.Millisecond)
+	a.ChatSend(1, prompt, nil)
+	for _, want := range []string{"review:start", "review:done"} {
+		select {
+		case e := <-got:
+			if e != want {
+				t.Fatalf("got %s, want %s", e, want)
+			}
+		case <-time.After(8 * time.Second):
+			t.Fatalf("no %s: the review request was not picked up", want)
+		}
+	}
+}
+
+// With /supereview off, an AI asking for a review is told to carry on.
+func TestReviewMarkerWhenOff(t *testing.T) {
+	root, home, cwd := t.TempDir(), t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o644)
+	b, _ := json.Marshal(Config{Accounts: []Account{{ID: "main", Label: "Claude 1"}}, StartingDir: cwd})
+	os.WriteFile(filepath.Join(root, "config.json"), b, 0o644)
+	t.Setenv("AIT_FAKE_CLI", "1")
+	s, _ := newStoreAt(root, home)
+	registry["claude"] = fakeChat{registry["claude"].(*claude)}
+	a := NewApp(s)
+	got := make(chan string, 64)
+	a.emit = func(event string, data ...any) {
+		if event == "review:error" {
+			got <- "error"
+		}
+		if event == "chat:ev" {
+			for _, e := range data[1].([]Ev) {
+				if txt, _ := e["text"].(string); e["k"] == "delta" && strings.Contains(txt, "Continue the user's request without it") {
+					got <- "told"
+				}
+			}
+		}
+	}
+	if _, err := a.Open(OpenRequest{ID: 1, Profile: "claude", Account: "main", Cols: 80, Rows: 24}); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close(1)
+	time.Sleep(500 * time.Millisecond)
+	a.ChatSend(1, "review me", nil)
+	for _, want := range []string{"error", "told"} {
+		select {
+		case e := <-got:
+			if e != want {
+				t.Fatalf("got %s, want %s", e, want)
+			}
+		case <-time.After(8 * time.Second):
+			t.Fatalf("no %s: the AI was left waiting", want)
+		}
+	}
+}

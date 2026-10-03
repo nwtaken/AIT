@@ -223,6 +223,9 @@
 .review-card b { color: var(--accent); }
 .review-card .review-body { margin-top: 8px; color: var(--text); white-space: pre-wrap; font: 12px/1.55 var(--mono); }
 .review-card.failed b { color: var(--err); }
+.review-card progress { display: block; width: min(100%, 360px); height: 6px; margin-top: 8px; accent-color: var(--accent); }
+.review-card progress[hidden] { display: none; }
+.review-card .review-body:empty { display: none; }
 
 .composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 10px; border: 1px solid var(--hair);
   background: var(--soft); transition: border-color .2s, box-shadow .2s; }

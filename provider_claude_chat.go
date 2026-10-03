@@ -420,6 +420,10 @@ func assistantEvents(content json.RawMessage, history bool) []Ev {
 		case "text":
 			if history && strings.TrimSpace(b.Text) != "" {
 				out = append(out, Ev{"k": "text", "text": b.Text})
+			} else if !history {
+				// The whole block, as AIT reads requests in replies from it
+				// (the review marker) even when no deltas streamed.
+				out = append(out, Ev{"k": "final", "text": b.Text})
 			}
 		case "thinking":
 			if history && strings.TrimSpace(b.Thinking) != "" {

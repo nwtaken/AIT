@@ -836,18 +836,28 @@ function handoverProgress(tab, state) {
 
 function reviewState(tab, state, name, feedback = "") {
   const c = tab.chat;
-  const last = c.thread.lastElementChild;
-  if (last?.classList.contains("ai") && last.textContent.trim() === "[[AIT_SUPEREVIEW]]") last.remove();
+  // The AI's reply that asked for the review is just the marker: drop it.
+  for (const md of c.thread.querySelectorAll(".turn.ai .md")) {
+    if (md.textContent.trim() === "[[AIT_SUPEREVIEW]]") md.closest(".turn.ai").remove();
+  }
   if (!c.reviewEl || state === "start") {
     c.reviewEl = document.createElement("div");
     c.reviewEl.className = "review-card";
-    c.reviewEl.innerHTML = '<b></b><div class="review-body"></div>';
+    c.reviewEl.innerHTML = '<b role="status" aria-live="polite"></b><progress></progress><div class="review-body"></div>';
     c.thread.append(c.reviewEl);
   }
+  const bar = c.reviewEl.querySelector("progress");
   c.reviewEl.classList.toggle("failed", state === "error");
-  c.reviewEl.querySelector("b").textContent = state === "start" ? `${name} is reviewing this work…` :
-    state === "done" ? `${name} reviewed the work` : "Review unavailable";
+  c.reviewEl.querySelector("b").textContent = state === "start" ? `${name} is reviewing the work…` :
+    state === "done" ? `${name} reviewed the work. The AI is acting on it.` : "The review could not run";
+  bar.hidden = state === "error";
+  if (state === "start") bar.removeAttribute("value"); else bar.value = 1;
   c.reviewEl.querySelector(".review-body").textContent = feedback;
+  c.reviewing = state === "start";
+  // While the other AI reviews, the busy line says so (with its timer); the
+  // feedback then starts the working AI's next turn, which takes it over.
+  if (state === "start") setBusy(tab, true, `${name} is reviewing`);
+  else if (state === "error") setBusy(tab, false);
   if (c.stick) scrollEnd(c);
 }
 

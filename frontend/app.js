@@ -1025,7 +1025,7 @@ function traySnapshot() {
   const vars = {};
   for (const k of root.style) vars[k] = root.style.getPropertyValue(k);
   const others = [...tabs.values()].filter((t) => t !== tab && t.chat?.busy).length;
-  const state = !c ? "No AI chat open" : c.reading ? "Reading the handover" : tab.card ? "Waiting for your answer"
+  const state = !c ? "No AI chat open" : c.reading ? "Reading the handover" : c.reviewing ? "Another AI is reviewing the work" : tab.card ? "Waiting for your answer"
     : c.busy ? (c.verb || "Working") + "…" : c.thread.querySelector(".turn.ai") ? "Done" : "Ready";
   const tools = c?.thread.querySelectorAll(".tool-h");
   const last = tools?.length ? tools[tools.length - 1] : null;

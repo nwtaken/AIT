@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -146,6 +147,7 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 	sc.Buffer(make([]byte, 1<<20), 64<<20) // agent turns get large
 	textBlocks := map[any]bool{}
 	var turnText strings.Builder
+	lastText := "" // the latest complete text block of the turn's last message
 	for sc.Scan() {
 		if t.gen.Load() != gen {
 			continue // replaced; drain quietly
@@ -162,6 +164,9 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 					a.trayTooltip()
 				}
 				turnText.Reset()
+				lastText = ""
+			case "final":
+				lastText, _ = e["text"].(string)
 			case "start":
 				textBlocks[e["i"]] = e["type"] == "text"
 			case "delta":
@@ -174,7 +179,10 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 				t.working.Store(false)
 				a.trayTooltip()
 				text := strings.TrimSpace(turnText.String())
-				requestReview = text == reviewMarker
+				if text == "" {
+					text = strings.TrimSpace(lastText)
+				}
+				requestReview = text == reviewMarker || strings.TrimSpace(lastText) == reviewMarker
 				turnText.Reset()
 				if !requestReview {
 					errText, _ := e["error"].(string)
@@ -202,9 +210,14 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 		}
 		evs = a.handoverEvents(t, cp, proc, st, gen, evs)
 		a.chatOut(t, evs)
-		if requestReview && t.gen.Load() == gen && a.store.Config().Review {
+		if requestReview && t.gen.Load() == gen {
 			go func() {
-				if err := a.Review(t.id); err != nil {
+				err := errors.New("it is switched off (/supereview)")
+				if a.store.Config().Review {
+					err = a.Review(t.id)
+				}
+				// Never leave the AI waiting on a review that will not come.
+				if err != nil {
 					a.emit("review:error", t.id, err.Error())
 					a.ChatSend(t.id, "The requested independent review is unavailable: "+err.Error()+". Continue the user's request without it.", nil)
 				}
