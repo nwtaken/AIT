@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -126,6 +127,9 @@ func (c *claude) mirrorState(home, cwd string, trusted bool) {
 		if v["hasTrustDialogAccepted"] == true {
 			ensure(projects, k)["hasTrustDialogAccepted"] = true
 		}
+		if servers, _ := v["mcpServers"].(map[string]any); len(servers) > 0 {
+			mirrorProjectMcp(ensure(projects, k), servers, v["disabledMcpServers"])
+		}
 	}
 	if trusted && cwd != "" {
 		ensure(projects, strings.ReplaceAll(cwd, `\`, "/"))["hasTrustDialogAccepted"] = true
@@ -138,6 +142,28 @@ func (c *claude) mirrorState(home, cwd string, trusted bool) {
 	}
 	out, _ := json.MarshalIndent(dst, "", "  ")
 	os.WriteFile(p, out, 0o644)
+}
+
+// mirrorProjectMcp gives the account the MCP servers main set up for one
+// folder ("local" scope). One main had switched off stays off when it first
+// arrives; after that the account's own switches (AIT's MCP list) rule.
+func mirrorProjectMcp(dst map[string]any, servers map[string]any, mainOff any) {
+	have, _ := dst["mcpServers"].(map[string]any)
+	if have == nil {
+		have = map[string]any{}
+	}
+	off, _ := dst["disabledMcpServers"].([]any)
+	offMain, _ := mainOff.([]any)
+	for name, cfg := range servers {
+		if _, ok := have[name]; !ok && slices.Contains(offMain, any(name)) && !slices.Contains(off, any(name)) {
+			off = append(off, name)
+		}
+		have[name] = cfg
+	}
+	dst["mcpServers"] = have
+	if len(off) > 0 {
+		dst["disabledMcpServers"] = off
+	}
 }
 
 func ensure(m map[string]map[string]any, k string) map[string]any {

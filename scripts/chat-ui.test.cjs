@@ -121,6 +121,18 @@ const assert = require("node:assert/strict");
     assert.equal(await page.locator('.switch[data-name="elevenlabs"]').getAttribute("aria-checked"), "false", "a server switched off in AIT shows as off");
     await page.click('.switch[data-name="docs"]');
     assert.ok((await page.evaluate(() => calls)).some((c) => c[0] === "mcp" && c[2] === "docs" && c[3] === false), "a server can be switched off");
+    const kept = await page.evaluate(async () => {
+      const many = Array.from({ length: 20 }, (_, i) => ({ name: "srv" + i, status: "connected", tools: 1, category: "Other" }));
+      chatEvents(tabs.get(1), [{ k: "mcp", servers: many }], true);
+      await new Promise((r) => setTimeout(r, 50));
+      const list = document.querySelector("#modelpop .mp-list");
+      list.scrollTop = 200;
+      const before = list.scrollTop;
+      chatEvents(tabs.get(1), [{ k: "mcp", servers: many }], true); // the status after a switch
+      await new Promise((r) => setTimeout(r, 50));
+      return [before, document.querySelector("#modelpop .mp-list").scrollTop];
+    });
+    assert.ok(kept[0] > 0 && kept[1] === kept[0], `switching keeps the MCP list's scroll position (${kept})`);
     await page.evaluate(() => closeModelPop());
     const locked = await page.evaluate(() => {
       const tab = tabs.get(1), c = tab.chat;

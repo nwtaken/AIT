@@ -848,3 +848,41 @@ func TestUpdateNudge(t *testing.T) {
 		t.Fatalf("queued %d checks", len(a.checkNow))
 	}
 }
+
+// MCP servers main set up for one folder reach the other accounts; one main
+// switched off arrives off, and the account's own switch is kept after that.
+func TestMirrorProjectMcpServers(t *testing.T) {
+	home, acct := t.TempDir(), t.TempDir()
+	providers(home)
+	cl := provider("claude").(*claude)
+	main := `{"projects":{"C:/Users/Kaya":{"hasTrustDialogAccepted":true,"mcpServers":{"Roblox_Studio":{"command":"rs"},"robloxstudio":{"command":"old"}},"disabledMcpServers":["robloxstudio"]}}}`
+	os.WriteFile(filepath.Join(home, ".claude.json"), []byte(main), 0o644)
+	read := func() map[string]any {
+		var d struct {
+			Projects map[string]map[string]any `json:"projects"`
+		}
+		b, _ := os.ReadFile(filepath.Join(acct, ".claude.json"))
+		json.Unmarshal(b, &d)
+		return d.Projects["C:/Users/Kaya"]
+	}
+	cl.mirrorState(acct, "", false)
+	p := read()
+	if s, _ := p["mcpServers"].(map[string]any); len(s) != 2 {
+		t.Fatalf("servers not mirrored: %v", p)
+	}
+	if off := fmt.Sprint(p["disabledMcpServers"]); off != "[robloxstudio]" {
+		t.Fatalf("disabled %s", off)
+	}
+	// The account switches robloxstudio on itself; mirroring again keeps that.
+	var d map[string]any
+	b, _ := os.ReadFile(filepath.Join(acct, ".claude.json"))
+	json.Unmarshal(b, &d)
+	proj := d["projects"].(map[string]any)["C:/Users/Kaya"].(map[string]any)
+	proj["disabledMcpServers"] = []any{}
+	b, _ = json.Marshal(d)
+	os.WriteFile(filepath.Join(acct, ".claude.json"), b, 0o644)
+	cl.mirrorState(acct, "", false)
+	if off, _ := read()["disabledMcpServers"].([]any); len(off) != 0 {
+		t.Fatalf("the account's own switch was undone: %v", off)
+	}
+}

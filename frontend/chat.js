@@ -1205,10 +1205,12 @@ async function mcpPop(tab, refresh) {
   // Grouped by what each server is for (sorted by AIT from its name, address and tools).
   const groups = MCP_GROUPS.map((g) => [g, (c.mcp || []).filter((m) => (MCP_GROUPS.includes(m.category) ? m.category : "Other") === g)]).filter(([, list]) => list.length);
   const rows = groups.map(([g, list]) => (groups.length > 1 ? `<div class="mcp-cat">${esc(g)}<span>${list.length}</span></div>` : "") + list.map(row).join("")).join("");
+  const scroll = refresh && pop.kind === "mcp" ? pop.querySelector(".mp-list")?.scrollTop || 0 : 0; // a switch re-lists: stay put
   pop.innerHTML = `
     <div class="mp-h"><span class="mp-i">${icon(tab.profile)}</span><b>MCP servers</b><span class="mp-acct">${esc(profile(tab.profile).name)}</span></div>
     <div class="mp-list">${c.mcp ? rows || '<div class="mcp-empty">No MCP servers set up for this AI.</div>' : '<div class="mcp-empty">Loading…</div>'}</div>
     <div class="mcp-note">${restarts ? "Switching restarts the chat on the same conversation. " : ""}Applies to every ${esc(profile(tab.profile).name)} chat.</div>`;
+  pop.querySelector(".mp-list").scrollTop = scroll;
   pop.querySelectorAll(".switch[data-name]").forEach((b) => b.addEventListener("click", async () => {
     const on = !b.classList.contains("on");
     b.classList.toggle("on", on);
