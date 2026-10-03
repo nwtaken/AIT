@@ -598,11 +598,18 @@ func claudeAnswer(line []byte) []Ev {
 				TotalTokens int `json:"totalTokens"`
 				MaxTokens   int `json:"maxTokens"`
 				McpServers  []struct {
-					Name   string            `json:"name"`
-					Status string            `json:"status"`
-					Error  string            `json:"error"`
-					Scope  string            `json:"scope"`
-					Tools  []json.RawMessage `json:"tools"`
+					Name   string `json:"name"`
+					Status string `json:"status"`
+					Error  string `json:"error"`
+					Scope  string `json:"scope"`
+					Config struct {
+						Command string   `json:"command"`
+						Args    []string `json:"args"`
+						URL     string   `json:"url"`
+					} `json:"config"`
+					Tools []struct {
+						Name string `json:"name"`
+					} `json:"tools"`
 				} `json:"mcpServers"`
 			} `json:"response"`
 		} `json:"response"`
@@ -630,7 +637,13 @@ func claudeAnswer(line []byte) []Ev {
 	case strings.HasPrefix(r.Response.ID, "ait-mcp"): // ait-mcp-… and ait-mcpcheck-…
 		servers := []map[string]any{}
 		for _, m := range resp.McpServers {
-			servers = append(servers, map[string]any{"name": m.Name, "status": m.Status, "error": m.Error, "scope": m.Scope, "tools": len(m.Tools)})
+			tools := make([]string, len(m.Tools))
+			for i, t := range m.Tools {
+				tools[i] = t.Name
+			}
+			where := strings.Join(append([]string{m.Config.URL, m.Config.Command}, m.Config.Args...), " ")
+			servers = append(servers, map[string]any{"name": m.Name, "status": m.Status, "error": m.Error, "scope": m.Scope, "tools": len(m.Tools),
+				"category": mcpCategory(m.Name, where, tools)})
 		}
 		return []Ev{{"k": "mcp", "servers": servers}}
 	case strings.HasPrefix(r.Response.ID, "ait-settings") && resp.Applied != nil:

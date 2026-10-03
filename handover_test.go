@@ -975,3 +975,42 @@ func TestOneReviewPerRequest(t *testing.T) {
 	case <-time.After(1500 * time.Millisecond):
 	}
 }
+
+// MCP servers are sorted by what they are for.
+func TestMcpCategory(t *testing.T) {
+	for _, c := range []struct {
+		name, where string
+		tools       []string
+		want        string
+	}{
+		{"Roblox_Studio", "npx roblox-studio-mcp", nil, "Roblox"},
+		{"nrr-opencloud", "node C:/Users/Kaya/nrr-opencloud-mcp-server/dist/index.js", nil, "Roblox"},
+		{"minecraft-mcp", "http://localhost:3000/mcp", nil, "Minecraft"},
+		{"claude.ai Google Drive", "https://drivemcp.googleapis.com/mcp/v1", []string{"copy_file"}, "Websites"},
+		{"claude.ai Claude Docs", "https://api.anthropic.com/v1/pages/mcp", []string{"create", "read"}, "Websites"},
+		{"claude.ai Higgsfield", "https://mcp.higgsfield.ai/mcp", nil, "Other AIs"},
+		{"elevenlabs", "C:/Python/Scripts/elevenlabs-mcp.exe", nil, "Other AIs"},
+		{"helper", "", []string{"text_to_speech"}, "Other AIs"},
+		{"filesystem", "npx @modelcontextprotocol/server-filesystem", []string{"read_file"}, "Other"},
+	} {
+		if got := mcpCategory(c.name, c.where, c.tools); got != c.want {
+			t.Errorf("%s: %s, want %s", c.name, got, c.want)
+		}
+	}
+}
+
+// Claude's mcp_status reply carries each server's category.
+func TestClaudeMcpStatusCategories(t *testing.T) {
+	line := `{"type":"control_response","response":{"subtype":"success","request_id":"ait-mcp-1","response":{"mcpServers":[` +
+		`{"name":"nrr-opencloud","status":"failed","error":"Connection closed","config":{"type":"stdio","command":"node","args":["C:/Users/Kaya/nrr-opencloud-mcp-server/dist/index.js"]},"scope":"user"},` +
+		`{"name":"claude.ai Google Drive","status":"connected","config":{"type":"claudeai-proxy","url":"https://drivemcp.googleapis.com/mcp/v1"},"scope":"claudeai","tools":[{"name":"copy_file","annotations":{}}]}]}}}`
+	st := &ChatState{Asks: map[string]json.RawMessage{}, Data: map[string]any{}, Send: func([]byte) {}}
+	evs := (&claude{}).ChatDecode([]byte(line), st)
+	if len(evs) != 1 || evs[0]["k"] != "mcp" {
+		t.Fatalf("got %v", evs)
+	}
+	servers := evs[0]["servers"].([]map[string]any)
+	if servers[0]["category"] != "Roblox" || servers[1]["category"] != "Websites" || servers[1]["tools"] != 1 {
+		t.Fatalf("got %v", servers)
+	}
+}

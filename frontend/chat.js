@@ -1185,6 +1185,8 @@ function findStep(tab, dir) {
 
 const MCP_STATUS = { connected: "Connected", failed: "Failed", "needs-auth": "Needs sign-in", pending: "Connecting…", disabled: "Off", "no tools": "No tools" };
 
+const MCP_GROUPS = ["Roblox", "Minecraft", "Websites", "Other AIs", "Other"];
+
 async function mcpPop(tab, refresh) {
   const c = tab.chat, pop = $("#modelpop");
   if (!refresh) {
@@ -1193,13 +1195,16 @@ async function mcpPop(tab, refresh) {
   }
   const off = new Set(await API().McpOff(tab.profile));
   const restarts = tab.profile !== "claude";
-  const rows = (c.mcp || []).map((m) => {
+  const row = (m) => {
     const isOff = off.has(m.name) || m.status === "disabled";
     const st = isOff ? "Off" : (MCP_STATUS[m.status] || m.status) + (m.tools && !isOff ? ` · ${m.tools} tool${m.tools === 1 ? "" : "s"}` : "") + (m.error ? ": " + m.error : "");
     const dot = isOff ? "off" : m.status === "connected" ? "ok" : m.status === "failed" ? "bad" : "warn";
     return `<div class="mp-def mcp-row"><span class="mcp-dot ${dot}"></span><span class="mcp-t"><b>${esc(m.name)}</b><span>${esc(st)}</span></span>
       <button class="switch ${isOff ? "" : "on"}" role="switch" aria-checked="${!isOff}" data-name="${esc(m.name)}" title="${isOff ? "Switch on" : "Switch off"}"><i></i></button></div>`;
-  }).join("");
+  };
+  // Grouped by what each server is for (sorted by AIT from its name, address and tools).
+  const groups = MCP_GROUPS.map((g) => [g, (c.mcp || []).filter((m) => (MCP_GROUPS.includes(m.category) ? m.category : "Other") === g)]).filter(([, list]) => list.length);
+  const rows = groups.map(([g, list]) => (groups.length > 1 ? `<div class="mcp-cat">${esc(g)}<span>${list.length}</span></div>` : "") + list.map(row).join("")).join("");
   pop.innerHTML = `
     <div class="mp-h"><span class="mp-i">${icon(tab.profile)}</span><b>MCP servers</b><span class="mp-acct">${esc(profile(tab.profile).name)}</span></div>
     <div class="mp-list">${c.mcp ? rows || '<div class="mcp-empty">No MCP servers set up for this AI.</div>' : '<div class="mcp-empty">Loading…</div>'}</div>

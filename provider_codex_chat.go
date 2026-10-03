@@ -5,8 +5,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -578,7 +580,8 @@ func codexMcp(result json.RawMessage) []Ev {
 		} else if len(s.Tools) == 0 {
 			status = "no tools"
 		}
-		servers = append(servers, map[string]any{"name": s.Name, "status": status, "error": errText, "scope": "", "tools": len(s.Tools)})
+		servers = append(servers, map[string]any{"name": s.Name, "status": status, "error": errText, "scope": "", "tools": len(s.Tools),
+			"category": mcpCategory(s.Name, "", slices.Collect(maps.Keys(s.Tools)))})
 	}
 	return []Ev{{"k": "mcp", "servers": servers}}
 }

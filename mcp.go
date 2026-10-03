@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // MCP servers per AI. The page lists what the running chat reports
@@ -74,4 +75,34 @@ func (a *App) McpToggle(tabID int, name string, on bool) error {
 		prompt = "continue"
 	}
 	return a.relaunch(t, acct, prompt)
+}
+
+// MCP categories, in the order the MCP list shows them.
+var mcpCategories = []struct {
+	name string
+	keys []string
+}{
+	{"Roblox", []string{"roblox", "rbx", "luau", "rojo", "opencloud"}},
+	{"Minecraft", []string{"minecraft", "mineflayer", "bukkit", "spigot", "papermc", "fabricmc"}},
+	{"Other AIs", []string{"elevenlabs", "higgsfield", "recraft", "openai", "chatgpt", "gpt", "gemini", "codex", "midjourney", "stabilityai",
+		"huggingface", "runway", "suno", "ollama", "perplexity", "mistral", "groq", "deepseek", "ideogram", "heygen", "leonardo",
+		"text_to_speech", "text_to_image", "generate_image", "generate_video"}},
+}
+
+// mcpCategory sorts a server by what it is for, from its name, where it runs
+// (URL or command line) and its tool names. A server reached over the web
+// that fits nothing else is a website; the rest is "Other".
+func mcpCategory(name, where string, tools []string) string {
+	hay := strings.ToLower(name + " " + where + " " + strings.Join(tools, " "))
+	for _, c := range mcpCategories {
+		for _, k := range c.keys {
+			if strings.Contains(hay, k) {
+				return c.name
+			}
+		}
+	}
+	if strings.HasPrefix(name, "claude.ai ") || strings.Contains(strings.ToLower(where), "http") {
+		return "Websites"
+	}
+	return "Other"
 }
