@@ -3,11 +3,40 @@
 package main
 
 import (
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+// forgetTestChats removes, when the test ends, the conversations it created
+// in the real accounts, so they do not fill the user's History: Claude's
+// project folders for the test's temp folders, and Codex rollouts written
+// since the test started that hold the test's prompt.
+func forgetTestChats(t *testing.T) {
+	start := time.Now()
+	t.Cleanup(func() {
+		home, _ := os.UserHomeDir()
+		dirs, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*-Temp-TestReal*"))
+		for _, d := range dirs {
+			os.RemoveAll(d)
+		}
+		filepath.WalkDir(filepath.Join(home, ".codex", "sessions"), func(p string, e fs.DirEntry, err error) error {
+			if err != nil || e.IsDir() || !strings.HasSuffix(p, ".jsonl") {
+				return nil
+			}
+			if info, err := e.Info(); err != nil || info.ModTime().Before(start) {
+				return nil
+			}
+			if b, _ := os.ReadFile(p); strings.Contains(string(b), "Remember the code word") {
+				os.Remove(p)
+			}
+			return nil
+		})
+	})
+}
 
 // Real Codex: the tab finds its own transcript from the reported id, and a
 // relaunch (account switch / handoff) resumes it with the conversation intact.
@@ -19,6 +48,7 @@ func TestRealClaudeResumeRemembers(t *testing.T) {
 }
 
 func realResume(t *testing.T, profile string, acct Account) {
+	forgetTestChats(t)
 	home, _ := os.UserHomeDir()
 	store, err := newStoreAt(t.TempDir(), home)
 	if err != nil {
@@ -102,6 +132,7 @@ func TestRealCodexToClaudeHandover(t *testing.T) { realHandover(t, "codex", "cx"
 func TestRealClaudeToCodexHandover(t *testing.T) { realHandover(t, "claude", "cl", "codex") }
 
 func realHandover(t *testing.T, from, fromAcct, to string) {
+	forgetTestChats(t)
 	home, _ := os.UserHomeDir()
 	store, err := newStoreAt(t.TempDir(), home)
 	if err != nil {
