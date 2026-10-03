@@ -108,7 +108,7 @@ func reviewPrompt(cwd, history string) string {
 	return "You are a second AI reviewing another AI's work. Read the user's exact request and the work so far. " +
 		"Compare the result to that request and inspect the workspace if needed. For a simple request, still give your best concrete improvements. " +
 		"Point out real defects, missing requirements, and worthwhile refinements; do not invent problems. " +
-		"Do not edit files. Give the primary AI a concise actionable review with evidence.\n\n" +
+		"Do not edit files. Give the primary AI a concise actionable review with evidence, all of it in your final message (only that message is passed on).\n\n" +
 		"<conversation>\n" + history + "\n</conversation>\n\n<git-diff>\n" + string(diff) + "\n</git-diff>"
 }
 
@@ -184,15 +184,11 @@ func (a *App) runReviewer(p Provider, acct Account, cwd, prompt string, step fun
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	textBlocks := map[any]bool{}
-	// The answer is every text block in order. A block's complete text
-	// ("final", after its deltas) fills in for a block that did not stream.
-	var answer strings.Builder
-	streamed := false // deltas since the last complete block
-	add := func(s string) {
-		if answer.Len()+len(s) <= 32<<10 {
-			answer.WriteString(s)
-		}
-	}
+	// The feedback is the reviewer's last text block: earlier ones are its
+	// narration ("I'll inspect…"). A block is its streamed text, or its
+	// complete text ("final") when it did not stream.
+	var cur strings.Builder // the block being streamed
+	last := ""
 	for sc.Scan() {
 		for _, e := range cp.ChatDecode(sc.Bytes(), st) {
 			switch e["k"] {
@@ -200,18 +196,20 @@ func (a *App) runReviewer(p Provider, acct Account, cwd, prompt string, step fun
 				name, _ := e["name"].(string)
 				step(toolLine(name, e["input"]))
 			case "final":
-				if s, _ := e["text"].(string); !streamed && strings.TrimSpace(s) != "" {
-					add(s)
+				text := cur.String()
+				if strings.TrimSpace(text) == "" {
+					text, _ = e["text"].(string)
 				}
-				add("\n\n")
-				streamed = false
+				if strings.TrimSpace(text) != "" {
+					last = text
+				}
+				cur.Reset()
 			case "start":
 				textBlocks[e["i"]] = e["type"] == "text"
 			case "delta":
 				if textBlocks[e["i"]] {
-					if s, _ := e["text"].(string); s != "" {
-						add(s)
-						streamed = true
+					if s, _ := e["text"].(string); s != "" && cur.Len()+len(s) <= 32<<10 {
+						cur.WriteString(s)
 					}
 				}
 			case "ask":
@@ -224,7 +222,10 @@ func (a *App) runReviewer(p Provider, acct Account, cwd, prompt string, step fun
 				if s, _ := e["error"].(string); s != "" || e["interrupted"] == true {
 					return "", fmt.Errorf("reviewer: %s", s)
 				}
-				feedback := strings.TrimSpace(answer.String())
+				if strings.TrimSpace(cur.String()) != "" { // streamed, with no complete text after it
+					last = cur.String()
+				}
+				feedback := strings.TrimSpace(last)
 				if feedback == "" {
 					return "", errors.New("the reviewer returned no feedback")
 				}

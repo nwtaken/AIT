@@ -791,8 +791,8 @@ func TestCodexMessageFinalText(t *testing.T) {
 	}
 }
 
-// The reviewer's steps reach the review card, and findings it sends only as
-// a complete message (after streamed notes and a tool) are not lost.
+// The reviewer's steps reach the review card, and its feedback is its last
+// message (not the narration before it), even when that one did not stream.
 func TestReviewerStepsAndUnstreamedFindings(t *testing.T) {
 	root, home, cwd := t.TempDir(), t.TempDir(), t.TempDir()
 	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
@@ -840,7 +840,7 @@ func TestReviewerStepsAndUnstreamedFindings(t *testing.T) {
 	}
 	select {
 	case fb := <-done:
-		if !strings.Contains(fb, "FINDINGS: fix the edge case") || !strings.Contains(fb, "Looking at it.") || strings.Count(fb, "Looking at it.") != 1 {
+		if fb != "FINDINGS: fix the edge case" { // the last message only, not the narration before it
 			t.Fatalf("feedback %q", fb)
 		}
 	case <-time.After(8 * time.Second):
