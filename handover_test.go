@@ -1036,3 +1036,70 @@ func TestPrewarmKeepsLastTabs(t *testing.T) {
 		t.Fatalf("last time's tabs were lost: %+v", got)
 	}
 }
+
+// Fixing an MCP server runs an AI out of sight: its steps, the sign-in page
+// it asks for and the outcome reach the MCP list, not the chat.
+func TestFixMcp(t *testing.T) {
+	root, home, cwd := t.TempDir(), t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o644)
+	b, _ := json.Marshal(Config{Accounts: []Account{{ID: "main", Label: "Claude 1"}}, StartingDir: cwd})
+	os.WriteFile(filepath.Join(root, "config.json"), b, 0o644)
+	t.Setenv("AIT_FAKE_CLI", "1")
+	s, _ := newStoreAt(root, home)
+	registry["claude"] = fakeChat{registry["claude"].(*claude)}
+	a := NewApp(s)
+	got := make(chan []any, 64)
+	a.emit = func(event string, data ...any) {
+		switch event {
+		case "mcpfix:step", "mcpfix:open", "mcpfix:done":
+			got <- append([]any{event}, data[1:]...)
+		case "chat:ev":
+			for _, e := range data[1].([]Ev) {
+				if txt, _ := e["text"].(string); strings.Contains(txt, "OPEN:") || strings.Contains(txt, "RESULT:") {
+					got <- []any{"in chat", txt}
+				}
+			}
+		}
+	}
+	if _, err := a.Open(OpenRequest{ID: 1, Profile: "claude", Account: "main", Cols: 80, Rows: 24}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { a.Close(1); a.finalTabsSave() }()
+	next := func() []any {
+		select {
+		case e := <-got:
+			return e
+		case <-time.After(8 * time.Second):
+			t.Fatal("the fix went quiet")
+		}
+		return nil
+	}
+	if err := a.FixMcp(1, "broken", "failed", "spawn ENOENT", "npx broken-mcp"); err != nil {
+		t.Fatal(err)
+	}
+	if e := next(); e[0] != "mcpfix:step" || e[1] != "broken" || e[2] == "" {
+		t.Fatalf("first %v", e)
+	}
+	if e := next(); e[0] != "mcpfix:open" || e[2] != "https://example.com/login" {
+		t.Fatalf("second %v", e)
+	}
+	if e := next(); e[0] != "mcpfix:done" || e[2] != true || e[3] != "The package was missing; I reinstalled it." {
+		t.Fatalf("third %v", e)
+	}
+	// A claude.ai connector is connected on claude.ai: no AI, just the page.
+	if err := a.FixMcp(1, "claude.ai Gmail", "needs-auth", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if e := next(); e[0] != "mcpfix:open" || e[2] != connectorsURL {
+		t.Fatalf("connector %v", e)
+	}
+	if e := next(); e[0] != "mcpfix:done" || e[2] != false {
+		t.Fatalf("connector done %v", e)
+	}
+	select {
+	case e := <-got:
+		t.Fatalf("unexpected %v", e)
+	case <-time.After(300 * time.Millisecond):
+	}
+}

@@ -56,6 +56,7 @@ type Tab struct {
 	// reviewed is true once a review ran for the user's latest message
 	// (chat.go): one review per request.
 	reviewed atomic.Bool
+	fixing   atomic.Bool // an MCP server is being fixed (mcpfix.go)
 	backMu   sync.Mutex
 	backlog  []byte
 	// Native chat (chat.go): the agent runs in streaming mode, no PTY.

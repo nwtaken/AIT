@@ -1142,6 +1142,9 @@ async function boot() {
   RT().EventsOn("review:start", (id, name) => { const t = tabs.get(id); if (t?.native) reviewState(t, "start", name); });
   RT().EventsOn("review:step", (id, step) => { const t = tabs.get(id); if (t?.native) reviewStep(t, step); });
   RT().EventsOn("review:done", (id, name, feedback) => { const t = tabs.get(id); if (t?.native) reviewState(t, "done", name, feedback); });
+  RT().EventsOn("mcpfix:step", (id, name, step) => { const t = tabs.get(id); if (t?.native) mcpFixStep(t, name, step); });
+  RT().EventsOn("mcpfix:open", (id, name, url) => { const t = tabs.get(id); if (t?.native) mcpFixOpen(t, name, url); });
+  RT().EventsOn("mcpfix:done", (id, name, fixed, summary) => { const t = tabs.get(id); if (t?.native) mcpFixDone(t, name, fixed, summary); });
   RT().EventsOn("review:error", (id, message) => { const t = tabs.get(id); if (t?.native) reviewState(t, "error", "", message); });
   RT().EventsOn("tab:notice", (id, text) => { toast(text); updateChrome(); });
   RT().EventsOn("app:close-requested", confirmQuit);

@@ -643,7 +643,7 @@ func claudeAnswer(line []byte) []Ev {
 			}
 			where := strings.Join(append([]string{m.Config.URL, m.Config.Command}, m.Config.Args...), " ")
 			servers = append(servers, map[string]any{"name": m.Name, "status": m.Status, "error": m.Error, "scope": m.Scope, "tools": len(m.Tools),
-				"category": mcpCategory(m.Name, where, tools)})
+				"category": mcpCategory(m.Name, where, tools), "where": strings.TrimSpace(where)})
 		}
 		return []Ev{{"k": "mcp", "servers": servers}}
 	case strings.HasPrefix(r.Response.ID, "ait-settings") && resp.Applied != nil:

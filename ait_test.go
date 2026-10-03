@@ -116,6 +116,15 @@ func fakeClaudeStream() {
 			w(`{"type":"result","subtype":"success","is_error":false,"duration_ms":12,"total_cost_usd":0}`)
 			continue
 		}
+		if strings.Contains(text, "fixing one MCP server") { // an MCP fixer: a step, a sign-in page, then the outcome
+			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"f1","usage":{"input_tokens":5}}}}`)
+			w(`{"type":"assistant","message":{"id":"f1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"npm install -g broken-mcp","description":"Reinstall the server"}}]}}`)
+			w(`{"type":"assistant","message":{"id":"f1","content":[{"type":"text","text":"It needs a sign-in.\nOPEN: https://example.com/login"}]}}`)
+			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"f2","usage":{"input_tokens":5}}}}`)
+			w(`{"type":"assistant","message":{"id":"f2","content":[{"type":"text","text":"The package was missing; I reinstalled it.\nRESULT: fixed"}]}}`)
+			w(`{"type":"result","subtype":"success","is_error":false,"duration_ms":12,"total_cost_usd":0}`)
+			continue
+		}
 		if strings.Contains(text, "second AI reviewing") && strings.Contains(text, "FAIL-REVIEW") { // a reviewer whose turn fails
 			w(`{"type":"result","subtype":"error","is_error":true,"result":"reviewer broke","duration_ms":12,"total_cost_usd":0}`)
 			continue

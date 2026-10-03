@@ -1186,6 +1186,40 @@ function findStep(tab, dir) {
 const MCP_STATUS = { connected: "Connected", failed: "Failed", "needs-auth": "Needs sign-in", pending: "Connecting…", disabled: "Off", "no tools": "No tools" };
 
 const MCP_GROUPS = ["Roblox", "Minecraft", "Websites", "Other AIs", "Other"];
+const MCP_FIXABLE = ["failed", "needs-auth"];
+
+// Fixing a server: an AI works on it out of sight; the list shows only its
+// progress, any sign-in page it opened (with the link, should the browser
+// not open), and the outcome.
+function mcpFixView(f) {
+  const title = f.done ? (f.fixed ? `${f.name} is fixed` : `${f.name} is not fixed yet`) : `Fixing ${f.name}`;
+  return `<div class="mcp-fix ${f.done ? (f.fixed ? "ok" : "bad") : ""}"><b>${esc(title)}</b>
+    ${f.done ? "" : `<progress></progress><div class="mcp-fix-step">${esc(f.step || "")}</div>`}
+    ${f.url ? `<div class="mcp-fix-open">Opened the sign-in page in your browser. Didn't open? <a href="${esc(f.url)}">${esc(f.url)}</a></div>` : ""}
+    ${f.done ? `<div class="mcp-fix-sum">${esc(f.summary || "")}</div><button class="btn quiet mcp-fix-back">Back to the list</button>` : ""}</div>`;
+}
+
+function mcpFixUpdate(tab, name, change) {
+  const c = tab.chat;
+  if (!c || c.mcpFix?.name !== name) return false;
+  Object.assign(c.mcpFix, change);
+  const pop = $("#modelpop");
+  const shown = !pop.hidden && pop.kind === "mcp" && pop.tab === tab;
+  if (shown) mcpPop(tab, true);
+  return shown;
+}
+
+function mcpFixStep(tab, name, step) { mcpFixUpdate(tab, name, { step }); }
+
+function mcpFixOpen(tab, name, url) {
+  RT().BrowserOpenURL(url);
+  mcpFixUpdate(tab, name, { url });
+}
+
+function mcpFixDone(tab, name, fixed, summary) {
+  if (!mcpFixUpdate(tab, name, { done: true, fixed, summary }))
+    toast(fixed ? `MCP ${name} is fixed` : `MCP ${name} is not fixed yet: open the MCP list for why`, 6000);
+}
 
 async function mcpPop(tab, refresh) {
   const c = tab.chat, pop = $("#modelpop");
@@ -1199,7 +1233,8 @@ async function mcpPop(tab, refresh) {
     const isOff = off.has(m.name) || m.status === "disabled";
     const st = isOff ? "Off" : (MCP_STATUS[m.status] || m.status) + (m.tools && !isOff ? ` · ${m.tools} tool${m.tools === 1 ? "" : "s"}` : "") + (m.error ? ": " + m.error : "");
     const dot = isOff ? "off" : m.status === "connected" ? "ok" : m.status === "failed" ? "bad" : "warn";
-    return `<div class="mp-def mcp-row"><span class="mcp-dot ${dot}"></span><span class="mcp-t"><b>${esc(m.name)}</b><span>${esc(st)}</span></span>
+    const fix = !isOff && MCP_FIXABLE.includes(m.status) ? `<button class="mp-showall mcp-fixbtn" data-fix="${esc(m.name)}" title="Let the AI find out what is wrong and fix it">Fix</button>` : "";
+    return `<div class="mp-def mcp-row"><span class="mcp-dot ${dot}"></span><span class="mcp-t"><b>${esc(m.name)}</b><span>${esc(st)}</span></span>${fix}
       <button class="switch ${isOff ? "" : "on"}" role="switch" aria-checked="${!isOff}" data-name="${esc(m.name)}" title="${isOff ? "Switch on" : "Switch off"}"><i></i></button></div>`;
   };
   // Grouped by what each server is for (sorted by AIT from its name, address and tools).
@@ -1208,9 +1243,17 @@ async function mcpPop(tab, refresh) {
   const scroll = refresh && pop.kind === "mcp" ? pop.querySelector(".mp-list")?.scrollTop || 0 : 0; // a switch re-lists: stay put
   pop.innerHTML = `
     <div class="mp-h"><span class="mp-i">${icon(tab.profile)}</span><b>MCP servers</b><span class="mp-acct">${esc(profile(tab.profile).name)}</span></div>
-    <div class="mp-list">${c.mcp ? rows || '<div class="mcp-empty">No MCP servers set up for this AI.</div>' : '<div class="mcp-empty">Loading…</div>'}</div>
+    <div class="mp-list">${c.mcpFix ? mcpFixView(c.mcpFix) : c.mcp ? rows || '<div class="mcp-empty">No MCP servers set up for this AI.</div>' : '<div class="mcp-empty">Loading…</div>'}</div>
     <div class="mcp-note">${restarts ? "Switching restarts the chat on the same conversation. " : ""}Applies to every ${esc(profile(tab.profile).name)} chat.</div>`;
-  pop.querySelector(".mp-list").scrollTop = scroll;
+  pop.querySelector(".mp-list").scrollTop = c.mcpFix ? 0 : scroll;
+  pop.querySelectorAll("[data-fix]").forEach((b) => b.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const m = c.mcp.find((m) => m.name === b.dataset.fix);
+    c.mcpFix = { name: m.name, step: "Looking at what is wrong…" };
+    mcpPop(tab, true);
+    try { await API().FixMcp(tab.id, m.name, m.status || "", m.error || "", m.where || ""); } catch (err) { mcpFixDone(tab, m.name, false, String(err)); }
+  }));
+  pop.querySelector(".mcp-fix-back")?.addEventListener("click", (e) => { e.stopPropagation(); c.mcpFix = null; mcpPop(tab); });
   pop.querySelectorAll(".switch[data-name]").forEach((b) => b.addEventListener("click", async () => {
     const on = !b.classList.contains("on");
     b.classList.toggle("on", on);

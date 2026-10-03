@@ -289,6 +289,15 @@ body:not(.desk) .sl-folder { margin-left: auto; padding-left: 16px; color: var(-
 .mcp-cat { display: flex; align-items: center; gap: 6px; padding: 10px 10px 2px; font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--accent); }
 .mcp-cat:first-child { padding-top: 3px; }
 .mcp-cat span { color: var(--muted); font-weight: 500; }
+.mcp-fixbtn { flex: none; color: var(--accent); }
+.mcp-fix { display: grid; gap: 8px; padding: 12px 10px 10px; font-size: 12px; color: var(--muted); }
+.mcp-fix b { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.mcp-fix.ok b { color: var(--ok); } .mcp-fix.bad b { color: var(--err); }
+.mcp-fix progress { width: 100%; height: 6px; accent-color: var(--accent); }
+.mcp-fix-step { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-fix-open a { color: var(--accent); overflow-wrap: anywhere; }
+.mcp-fix-sum { color: var(--text); white-space: pre-wrap; line-height: 1.45; }
+.mcp-fix-back { justify-self: start; }
 .mcp-empty { padding: 14px 12px; color: var(--muted); font-size: 12px; }
 .mcp-note { padding: 8px 14px 10px; border-top: 1px solid var(--flyout-line); color: var(--muted); font-size: 11px; }
 body:not(.desk) #modelpop { border-radius: 4px; } body:not(.desk) .mp-pill { border-radius: 3px; font-family: var(--mono); }

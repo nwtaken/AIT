@@ -113,7 +113,7 @@ func reviewPrompt(cwd, history string) string {
 }
 
 func (a *App) finishReview(t *Tab, gen int64, p Provider, acct Account, prompt string) {
-	feedback, err := a.runReviewer(p, acct, t.cwd, prompt, func(s string) { a.emit("review:step", t.id, s) })
+	feedback, err := a.runHelper(p, acct, t.cwd, "review", nil, 5*time.Minute, prompt, func(s string) { a.emit("review:step", t.id, s) }, nil)
 	t.mu.Lock()
 	if t.closed || t.gen.Load() != gen {
 		t.reviewing = false
@@ -140,18 +140,21 @@ func (a *App) finishReview(t *Tab, gen int64, p Provider, acct Account, prompt s
 	a.emit("review:done", t.id, p.Name(), feedback)
 }
 
-// The review process has its own login, read-only policy, and deadline.
-func (a *App) runReviewer(p Provider, acct Account, cwd, prompt string, step func(string)) (string, error) {
+// runHelper runs an AI out of sight (a review, an MCP fix) with its own
+// login, permission mode and deadline. step gets what it is doing; text gets
+// each complete text block; the result is its last text block. A helper in
+// "review" mode is denied every permission it asks for; others are allowed.
+func (a *App) runHelper(p Provider, acct Account, cwd, perm string, extra []string, limit time.Duration, prompt string, step, text func(string)) (string, error) {
 	cp := chatOf(p)
 	if cp == nil || p.Command() == nil {
-		return "", errors.New("the reviewing AI is unavailable")
+		return "", errors.New("the AI is unavailable")
 	}
-	l := Launch{}
+	l := Launch{Extra: extra}
 	if acct.Model != nil && *acct.Model != "" {
-		l.Extra = p.ModelArgs(*acct.Model)
+		l.Extra = append(l.Extra, p.ModelArgs(*acct.Model)...)
 	}
-	cmdline := append(append([]string{}, p.Command()...), cp.ChatArgs(l, "review")...)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	cmdline := append(append([]string{}, p.Command()...), cp.ChatArgs(l, perm)...)
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, cmdline[0], cmdline[1:]...)
 	cmd.Dir = cwd
@@ -175,7 +178,7 @@ func (a *App) runReviewer(p Provider, acct Account, cwd, prompt string, step fun
 	defer func() { kill(); cmd.Wait() }()
 	proc := &chatProc{cmd: cmd, stdin: stdin}
 	st := &ChatState{Asks: map[string]json.RawMessage{}, Data: map[string]any{}, Send: func(b []byte) { proc.send(b) }}
-	for _, b := range cp.ChatStart(st, l, "review", cwd) {
+	for _, b := range cp.ChatStart(st, l, perm, cwd) {
 		if err := proc.send(b); err != nil {
 			return "", err
 		}
@@ -186,7 +189,7 @@ func (a *App) runReviewer(p Provider, acct Account, cwd, prompt string, step fun
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	textBlocks := map[any]bool{}
-	// The feedback is the reviewer's last text block: earlier ones are its
+	// The result is the helper's last text block: earlier ones are its
 	// narration ("I'll inspect…"). A block is its streamed text, or its
 	// complete text ("final") when it did not stream.
 	var cur strings.Builder // the block being streamed
@@ -194,16 +197,19 @@ func (a *App) runReviewer(p Provider, acct Account, cwd, prompt string, step fun
 	for sc.Scan() {
 		for _, e := range cp.ChatDecode(sc.Bytes(), st) {
 			switch e["k"] {
-			case "tool": // what the reviewer is doing, for the review card
+			case "tool": // what the helper is doing, for its progress
 				name, _ := e["name"].(string)
 				step(toolLine(name, e["input"]))
 			case "final":
-				text := cur.String()
-				if strings.TrimSpace(text) == "" {
-					text, _ = e["text"].(string)
+				block := cur.String()
+				if strings.TrimSpace(block) == "" {
+					block, _ = e["text"].(string)
 				}
-				if strings.TrimSpace(text) != "" {
-					last = text
+				if strings.TrimSpace(block) != "" {
+					last = block
+					if text != nil {
+						text(block)
+					}
 				}
 				cur.Reset()
 			case "start":
@@ -216,30 +222,37 @@ func (a *App) runReviewer(p Provider, acct Account, cwd, prompt string, step fun
 				}
 			case "ask":
 				req, _ := e["req"].(string)
-				proc.send(cp.ChatReply(st, req, "deny", st.Asks[req]))
+				answer := "allow"
+				if perm == "review" {
+					answer = "deny"
+				}
+				proc.send(cp.ChatReply(st, req, answer, st.Asks[req]))
 				delete(st.Asks, req)
 			case "error":
-				return "", fmt.Errorf("reviewer: %v", e["text"])
+				return "", fmt.Errorf("%s: %v", p.Name(), e["text"])
 			case "done":
 				if s, _ := e["error"].(string); s != "" || e["interrupted"] == true {
-					return "", fmt.Errorf("reviewer: %s", s)
+					return "", fmt.Errorf("%s: %s", p.Name(), s)
 				}
 				if strings.TrimSpace(cur.String()) != "" { // streamed, with no complete text after it
 					last = cur.String()
+					if text != nil {
+						text(last)
+					}
 				}
-				feedback := strings.TrimSpace(last)
-				if feedback == "" {
-					return "", errors.New("the reviewer returned no feedback")
+				result := strings.TrimSpace(last)
+				if result == "" {
+					return "", fmt.Errorf("%s returned nothing", p.Name())
 				}
-				return feedback, nil
+				return result, nil
 			}
 		}
 	}
 	if ctx.Err() != nil {
-		return "", errors.New("review timed out")
+		return "", fmt.Errorf("%s ran out of time", p.Name())
 	}
 	if err := sc.Err(); err != nil {
 		return "", err
 	}
-	return "", errors.New("the reviewer stopped before completing")
+	return "", fmt.Errorf("%s stopped before finishing", p.Name())
 }
