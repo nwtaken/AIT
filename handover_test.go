@@ -760,16 +760,20 @@ func TestReviewMarkerWhenOff(t *testing.T) {
 				if txt, _ := e["text"].(string); e["k"] == "delta" && strings.Contains(txt, "Continue the user's request without it") {
 					got <- "told"
 				}
+				if e["k"] == "done" {
+					got <- "turn done"
+				}
 			}
 		}
 	}
 	if _, err := a.Open(OpenRequest{ID: 1, Profile: "claude", Account: "main", Cols: 80, Rows: 24}); err != nil {
 		t.Fatal(err)
 	}
-	defer a.Close(1)
+	defer func() { a.Close(1); a.finalTabsSave() }() // no tabs save into the removed temp dir
 	time.Sleep(500 * time.Millisecond)
 	a.ChatSend(1, "review me", nil)
-	for _, want := range []string{"error", "told"} {
+	// The AI's turn on the note to carry on finishes before the tab closes.
+	for _, want := range []string{"turn done", "error", "told", "turn done"} {
 		select {
 		case e := <-got:
 			if e != want {
@@ -883,13 +887,16 @@ func TestReviewerFailureContinues(t *testing.T) {
 				if txt, _ := e["text"].(string); e["k"] == "delta" && strings.Contains(txt, "Continue the user's request without it") {
 					got <- "told"
 				}
+				if e["k"] == "done" {
+					got <- "turn done"
+				}
 			}
 		}
 	}
 	if _, err := a.Open(OpenRequest{ID: 1, Profile: "claude", Account: "main", Cols: 80, Rows: 24}); err != nil {
 		t.Fatal(err)
 	}
-	defer a.Close(1)
+	defer func() { a.Close(1); a.finalTabsSave() }() // no tabs save into the removed temp dir
 	tab := a.tab(1)
 	for i := 0; i < 100; i++ { // the agent's init claims its transcript; set ours after it
 		tab.mu.Lock()
@@ -905,7 +912,9 @@ func TestReviewerFailureContinues(t *testing.T) {
 	os.WriteFile(tab.session, []byte(`{"type":"user","message":{"role":"user","content":"please FAIL-REVIEW this"}}`+"\n"), 0o644)
 	tab.mu.Unlock()
 	a.ChatSend(1, "review me", nil)
-	for _, want := range []string{"error", "told"} {
+	// The AI's own turn ends first; then the failed review, the note to carry
+	// on, and the AI's turn on it (finished before the tab closes).
+	for _, want := range []string{"turn done", "error", "told", "turn done"} {
 		select {
 		case e := <-got:
 			if e != want {
