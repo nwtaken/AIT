@@ -919,16 +919,18 @@ const HUGE_BYTES = 100 * 1024 * 1024; // drawing a chat this big would slow AIT 
 async function reopenTabs() {
   let last = [];
   try { last = (await API().LastTabs?.()) || []; } catch { last = []; }
-  let front = null, opened = 0;
-  for (const t of last) {
-    if (!ui.profiles.some((p) => p.id === t.provider && p.installed)) continue; // that AI is gone
-    const tab = await openTab(t.provider, { chat: t.ref, summary: t.size >= HUGE_BYTES, size: t.size });
-    opened++;
+  // All start at once (each tab takes its place in the strip before it
+  // waits for its AI), instead of each waiting for the one before.
+  const starting = last.filter((t) => ui.profiles.some((p) => p.id === t.provider && p.installed)) // skip AIs that are gone
+    .map((t) => [t, openTab(t.provider, { chat: t.ref, summary: t.size >= HUGE_BYTES, size: t.size })]);
+  let front = null;
+  for (const [t, opening] of starting) {
+    const tab = await opening;
     if (t.draft && tab?.chat) { tab.chat.ta.value = t.draft; autosize(tab.chat.ta); saveDraft(tab); }
     if (t.active) front = tab;
   }
   if (front) activate(front.id);
-  return opened > 0;
+  return starting.length > 0;
 }
 
 async function resumeChat(c) {
