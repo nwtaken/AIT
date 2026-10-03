@@ -904,13 +904,13 @@ function composerKey(e, tab) {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(tab); return; }
   if (e.key === "ArrowUp" && !c.ta.value && c.sent.length) {
     c.histIdx = c.histIdx < 0 ? c.sent.length - 1 : Math.max(0, c.histIdx - 1);
-    c.ta.value = c.sent[c.histIdx]; autosize(c.ta); e.preventDefault(); return;
+    c.ta.value = c.sent[c.histIdx]; autosize(c.ta); saveDraft(tab); e.preventDefault(); return;
   }
   if (e.key === "ArrowDown" && c.histIdx >= 0) {
     c.histIdx++;
     c.ta.value = c.histIdx < c.sent.length ? c.sent[c.histIdx] : "";
     if (c.histIdx >= c.sent.length) c.histIdx = -1;
-    autosize(c.ta); e.preventDefault(); return;
+    autosize(c.ta); saveDraft(tab); e.preventDefault(); return;
   }
   // App shortcuts reach the shared handler (tabs, history, zoom…).
   if (e.ctrlKey) { const r = keys(e, tab); if (r === false) return; }
@@ -921,7 +921,7 @@ function submit(tab) {
   if (c.reading || c.loading) return;
   const text = c.ta.value.trim();
   if (!text && !c.files.length) return;
-  if (text.startsWith("/") && runLocal(tab, text)) { c.ta.value = ""; autosize(c.ta); return; }
+  if (text.startsWith("/") && runLocal(tab, text)) { c.ta.value = ""; autosize(c.ta); saveDraft(tab); return; }
   const files = c.files.slice();
   if (/^\/\S/.test(text)) c.lastCmd = text.split(/\s+/)[0];
   hideWelcome(c);
@@ -1000,7 +1000,7 @@ function pickPalette(tab) {
   const it = c.palette.items?.[c.palSel];
   c.palette.hidden = true;
   if (!it || it.disabled) return;
-  if (it.local) { c.ta.value = ""; autosize(c.ta); runLocal(tab, "/" + it.name); return; }
+  if (it.local) { c.ta.value = ""; autosize(c.ta); saveDraft(tab); runLocal(tab, "/" + it.name); return; }
   c.ta.value = "/" + it.name + " ";
   autosize(c.ta);
   c.ta.focus();

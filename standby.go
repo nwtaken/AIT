@@ -96,6 +96,7 @@ func (a *App) adoptStandby(r OpenRequest) (*Tab, []byte, int, int, []Ev) {
 	t.adopted.Store(true)
 	t.backMu.Unlock()
 	t.mu.Unlock()
+	a.queueTabsSave() // its conversation was found before it was a tab (tabs.go)
 
 	if t.promptShown.Load() && !t.autoTrust.Load() {
 		a.emit("tab:prompt", t.id, "trust", maskUser(t.cwd))

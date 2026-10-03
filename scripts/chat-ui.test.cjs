@@ -215,8 +215,13 @@ const assert = require("node:assert/strict");
       const t6 = { id: 13, native: true, profile: "claude", pane }; tabs.set(13, t6); createChat(t6);
       openTab = async () => t6;
       await reopenTabs();
-      t6.chat.ta.value += " more"; t6.chat.ta.dispatchEvent(new Event("input"));
+      go.main.App.ExportChat = async () => "x.md";
+      t6.chat.ta.value = "/export"; submit(t6); // a command clears the box, and so the saved draft
       await new Promise((r) => setTimeout(r, 500));
+      const afterCommand = saved.pop();
+      t6.chat.ta.value = "half a prompt more"; t6.chat.ta.dispatchEvent(new Event("input"));
+      await new Promise((r) => setTimeout(r, 500));
+      if (afterCommand?.[1] !== "") throw new Error("draft not cleared after a command: " + JSON.stringify(afterCommand));
       ({ openTab } = keep); ui.profiles = keep.profiles;
       const r = [t6.chat.ta.value, saved.pop()];
       pane.remove(); tabs.delete(13);
@@ -245,6 +250,16 @@ const assert = require("node:assert/strict");
       return { ...r, closed: $("#keysSheet").hidden };
     });
     assert.deepEqual(keysheet, { open: true, groups: ["Tabs", "Chat", "Find and history", "Window"], find: true, closed: true }, "the shortcuts sheet lists every group");
+    const layouts = await page.evaluate(() => {
+      const ta = tabs.get(1).chat.ta, out = [];
+      for (const init of [{ key: "/", code: "Slash", ctrlKey: true }, { key: "/", code: "Digit7", ctrlKey: true, shiftKey: true }]) {
+        ta.dispatchEvent(new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true }));
+        out.push(!$("#keysSheet").hidden);
+        closeShortcuts();
+      }
+      return out;
+    });
+    assert.deepEqual(layouts, [true, true], "Ctrl+/ opens the shortcuts on US and German keyboards");
     const sup = await page.evaluate(async () => {
       go.main.App.ToggleReview = async () => true;
       runLocal(tabs.get(1), "/supereview");

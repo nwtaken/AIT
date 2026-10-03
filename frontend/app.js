@@ -414,6 +414,8 @@ function keys(e, tab) {
   const ctrl = e.ctrlKey && !e.altKey && !e.metaKey;
   const k = e.key.toLowerCase();
 
+  // Ctrl+/ (Shift+7 on German keyboards, so with or without Shift).
+  if (ctrl && e.key === "/") { openShortcuts(); return stop(e); }
   if (ctrl && e.shiftKey) {
     if (k === "t") { openTab(ui.defaultProfile); return stop(e); }
     if (k === "w") { closeTab(tab.id); return stop(e); }
@@ -437,7 +439,6 @@ function keys(e, tab) {
     if (k === "0") { zoom(0); return stop(e); }
     if (k === ",") { openSettings(); return stop(e); }
     if (k === "f" && tab.native) { openFind(tab); return stop(e); }
-    if (k === "/") { openShortcuts(); return stop(e); }
   }
   return true;
 }
