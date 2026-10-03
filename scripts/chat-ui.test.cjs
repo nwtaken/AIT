@@ -249,13 +249,14 @@ const assert = require("node:assert/strict");
       chatEvents(t8, [{ k: "msg", id: "m" }, { k: "start", i: 1, type: "text" }, { k: "delta", i: 1, text: "[[AIT_SUPEREVIEW]]" }, { k: "stop", i: 1 }, { k: "done" }], false);
       const keepActive = active; active = 15;
       reviewState(t8, "start", "ChatGPT");
-      const during = { marker: t8.chat.thread.textContent.includes("AIT_SUPEREVIEW"), bar: !!t8.chat.thread.querySelector(".review-card progress:not([value])"), busy: t8.chat.busy, tray: traySnapshot().state };
+      reviewStep(t8, "Read app.go");
+      const during = { marker: t8.chat.thread.textContent.includes("AIT_SUPEREVIEW"), bar: !!t8.chat.thread.querySelector(".review-card progress:not([value])"), busy: t8.chat.busy, tray: traySnapshot().state, step: t8.chat.reviewEl.querySelector(".review-step").textContent };
       reviewState(t8, "done", "ChatGPT", "Fix the edge case.");
       const after = { title: t8.chat.reviewEl.querySelector("b").textContent, bar: t8.chat.reviewEl.querySelector("progress").value, feedback: t8.chat.reviewEl.querySelector(".review-body").textContent };
       active = keepActive; pane.remove(); tabs.delete(15);
       return { during, after };
     });
-    assert.deepEqual(review.during, { marker: false, bar: true, busy: true, tray: "Another AI is reviewing the work" }, "a review shows progress, removes the marker reply and counts as work");
+    assert.deepEqual(review.during, { marker: false, bar: true, busy: true, tray: "Another AI is reviewing the work", step: "Read app.go" }, "a review shows progress, removes the marker reply and counts as work");
     assert.deepEqual(review.after, { title: "ChatGPT reviewed the work. The AI is acting on it.", bar: 1, feedback: "Fix the edge case." }, "a finished review shows its feedback");
     const keysheet = await page.evaluate(() => {
       openShortcuts();

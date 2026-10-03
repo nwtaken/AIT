@@ -102,13 +102,27 @@ func fakeClaudeStream() {
 			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"m0","usage":{"input_tokens":5}}}}`)
 			continue
 		}
+		if strings.Contains(text, "second AI reviewing") && strings.Contains(text, "QUIET-REVIEW") {
+			// A reviewer that streams a note, reads a file, then sends its
+			// findings only as a complete message.
+			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"r1","usage":{"input_tokens":5}}}}`)
+			w(`{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text"}}}`)
+			w(`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Looking at it."}}}`)
+			w(`{"type":"stream_event","event":{"type":"content_block_stop","index":0}}`)
+			w(`{"type":"assistant","message":{"id":"r1","content":[{"type":"text","text":"Looking at it."}]}}`)
+			w(`{"type":"assistant","message":{"id":"r1","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"app.go"}}]}}`)
+			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"r2","usage":{"input_tokens":5}}}}`)
+			w(`{"type":"assistant","message":{"id":"r2","content":[{"type":"text","text":"FINDINGS: fix the edge case"}]}}`)
+			w(`{"type":"result","subtype":"success","is_error":false,"duration_ms":12,"total_cost_usd":0}`)
+			continue
+		}
 		if text == "review quietly" { // the marker only in the complete message, no deltas
 			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"mq","usage":{"input_tokens":5}}}}`)
 			w(`{"type":"assistant","message":{"id":"mq","content":[{"type":"text","text":"[[AIT_SUPEREVIEW]]"}]}}`)
 			w(`{"type":"result","subtype":"success","is_error":false,"duration_ms":12,"total_cost_usd":0}`)
 			continue
 		}
-		if text == "review me" { // asks for a review the way real Claude does: thinking, then the marker
+		if strings.HasPrefix(text, "review me") { // asks for a review the way real Claude does: thinking, then the marker
 			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"mr","usage":{"input_tokens":5}}}}`)
 			w(`{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}}`)
 			w(`{"type":"stream_event","event":{"type":"content_block_stop","index":0}}`)

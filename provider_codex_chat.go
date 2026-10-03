@@ -386,7 +386,9 @@ func (c *codex) item(st *ChatState, it codexItem, done bool) []Ev {
 		if !done {
 			return []Ev{{"k": "start", "i": it.ID, "type": "text"}}
 		}
-		return []Ev{{"k": "stop", "i": it.ID}}
+		// The whole message too: what AIT reads requests and answers from
+		// (the review marker, a reviewer's feedback) when no deltas came.
+		return []Ev{{"k": "stop", "i": it.ID}, {"k": "final", "text": it.Text}}
 	case "reasoning":
 		if !done {
 			return []Ev{{"k": "start", "i": it.ID, "type": "thinking"}}

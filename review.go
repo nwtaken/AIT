@@ -113,7 +113,7 @@ func reviewPrompt(cwd, history string) string {
 }
 
 func (a *App) finishReview(t *Tab, gen int64, p Provider, acct Account, prompt string) {
-	feedback, err := a.runReviewer(p, acct, t.cwd, prompt)
+	feedback, err := a.runReviewer(p, acct, t.cwd, prompt, func(s string) { a.emit("review:step", t.id, s) })
 	t.mu.Lock()
 	if t.closed || t.gen.Load() != gen {
 		t.reviewing = false
@@ -139,7 +139,7 @@ func (a *App) finishReview(t *Tab, gen int64, p Provider, acct Account, prompt s
 }
 
 // The review process has its own login, read-only policy, and deadline.
-func (a *App) runReviewer(p Provider, acct Account, cwd, prompt string) (string, error) {
+func (a *App) runReviewer(p Provider, acct Account, cwd, prompt string, step func(string)) (string, error) {
 	cp := chatOf(p)
 	if cp == nil || p.Command() == nil {
 		return "", errors.New("the reviewing AI is unavailable")
@@ -184,16 +184,34 @@ func (a *App) runReviewer(p Provider, acct Account, cwd, prompt string) (string,
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	textBlocks := map[any]bool{}
+	// The answer is every text block in order. A block's complete text
+	// ("final", after its deltas) fills in for a block that did not stream.
 	var answer strings.Builder
+	streamed := false // deltas since the last complete block
+	add := func(s string) {
+		if answer.Len()+len(s) <= 32<<10 {
+			answer.WriteString(s)
+		}
+	}
 	for sc.Scan() {
 		for _, e := range cp.ChatDecode(sc.Bytes(), st) {
 			switch e["k"] {
+			case "tool": // what the reviewer is doing, for the review card
+				name, _ := e["name"].(string)
+				step(toolLine(name, e["input"]))
+			case "final":
+				if s, _ := e["text"].(string); !streamed && strings.TrimSpace(s) != "" {
+					add(s)
+				}
+				add("\n\n")
+				streamed = false
 			case "start":
 				textBlocks[e["i"]] = e["type"] == "text"
 			case "delta":
 				if textBlocks[e["i"]] {
-					if s, _ := e["text"].(string); answer.Len()+len(s) <= 32<<10 {
-						answer.WriteString(s)
+					if s, _ := e["text"].(string); s != "" {
+						add(s)
+						streamed = true
 					}
 				}
 			case "ask":
@@ -206,10 +224,11 @@ func (a *App) runReviewer(p Provider, acct Account, cwd, prompt string) (string,
 				if s, _ := e["error"].(string); s != "" || e["interrupted"] == true {
 					return "", fmt.Errorf("reviewer: %s", s)
 				}
-				if answer.Len() == 0 {
+				feedback := strings.TrimSpace(answer.String())
+				if feedback == "" {
 					return "", errors.New("the reviewer returned no feedback")
 				}
-				return strings.TrimSpace(answer.String()), nil
+				return feedback, nil
 			}
 		}
 	}

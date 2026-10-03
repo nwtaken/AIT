@@ -843,7 +843,7 @@ function reviewState(tab, state, name, feedback = "") {
   if (!c.reviewEl || state === "start") {
     c.reviewEl = document.createElement("div");
     c.reviewEl.className = "review-card";
-    c.reviewEl.innerHTML = '<b role="status" aria-live="polite"></b><progress></progress><div class="review-body"></div>';
+    c.reviewEl.innerHTML = '<b role="status" aria-live="polite"></b><progress></progress><div class="review-step"></div><div class="review-body"></div>';
     c.thread.append(c.reviewEl);
   }
   const bar = c.reviewEl.querySelector("progress");
@@ -853,12 +853,19 @@ function reviewState(tab, state, name, feedback = "") {
   bar.hidden = state === "error";
   if (state === "start") bar.removeAttribute("value"); else bar.value = 1;
   c.reviewEl.querySelector(".review-body").textContent = feedback;
+  if (state !== "start") c.reviewEl.querySelector(".review-step").textContent = "";
   c.reviewing = state === "start";
   // While the other AI reviews, the busy line says so (with its timer); the
   // feedback then starts the working AI's next turn, which takes it over.
   if (state === "start") setBusy(tab, true, `${name} is reviewing`);
   else if (state === "error") setBusy(tab, false);
   if (c.stick) scrollEnd(c);
+}
+
+// reviewStep shows what the reviewing AI is doing right now ("Read app.go").
+function reviewStep(tab, step) {
+  const el = tab.chat.reviewing && tab.chat.reviewEl?.querySelector(".review-step");
+  if (el) el.textContent = step;
 }
 
 function restoreModel(tab, model) {

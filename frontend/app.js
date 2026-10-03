@@ -1140,6 +1140,7 @@ async function boot() {
   RT().EventsOn("tab:provider", (id, pid, name, fromName, reason) => { const t = tabs.get(id); if (t?.native) chatProvider(t, pid, name, fromName, reason); updateChrome(); });
   RT().EventsOn("tab:crossask", (id, to, toName, fromName) => { const t = tabs.get(id); if (t?.native) crossAsk(t, to, toName, fromName); });
   RT().EventsOn("review:start", (id, name) => { const t = tabs.get(id); if (t?.native) reviewState(t, "start", name); });
+  RT().EventsOn("review:step", (id, step) => { const t = tabs.get(id); if (t?.native) reviewStep(t, step); });
   RT().EventsOn("review:done", (id, name, feedback) => { const t = tabs.get(id); if (t?.native) reviewState(t, "done", name, feedback); });
   RT().EventsOn("review:error", (id, message) => { const t = tabs.get(id); if (t?.native) reviewState(t, "error", "", message); });
   RT().EventsOn("tab:notice", (id, text) => { toast(text); updateChrome(); });

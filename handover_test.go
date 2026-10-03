@@ -780,3 +780,70 @@ func TestReviewMarkerWhenOff(t *testing.T) {
 		}
 	}
 }
+
+// A finished Codex message carries its whole text, so a review request or a
+// reviewer's feedback is read even when no deltas streamed.
+func TestCodexMessageFinalText(t *testing.T) {
+	st := &ChatState{Asks: map[string]json.RawMessage{}, Data: map[string]any{}, Send: func([]byte) {}}
+	evs := (&codex{}).item(st, codexItem{Type: "agentMessage", ID: "a", Text: "[[AIT_SUPEREVIEW]]"}, true)
+	if len(evs) != 2 || evs[1]["k"] != "final" || evs[1]["text"] != "[[AIT_SUPEREVIEW]]" {
+		t.Fatalf("got %v", evs)
+	}
+}
+
+// The reviewer's steps reach the review card, and findings it sends only as
+// a complete message (after streamed notes and a tool) are not lost.
+func TestReviewerStepsAndUnstreamedFindings(t *testing.T) {
+	root, home, cwd := t.TempDir(), t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o644)
+	cfg := Config{Accounts: []Account{{ID: "main", Label: "Claude 1"}, {ID: "other", Label: "ChatGPT 1", Provider: "codex"}},
+		StartingDir: cwd, AIOrder: []string{"claude", "codex"}, Review: true}
+	b, _ := json.Marshal(cfg)
+	os.WriteFile(filepath.Join(root, "config.json"), b, 0o644)
+	t.Setenv("AIT_FAKE_CLI", "1")
+	s, _ := newStoreAt(root, home)
+	cl := registry["claude"].(*claude)
+	registry["claude"] = fakeChat{cl}
+	registry["codex"] = fakeOther{fakeChat{cl}}
+	a := NewApp(s)
+	steps, done := make(chan string, 16), make(chan string, 1)
+	a.emit = func(event string, data ...any) {
+		switch event {
+		case "review:step":
+			steps <- data[1].(string)
+		case "review:done":
+			done <- data[2].(string)
+		case "review:error":
+			done <- "ERROR: " + data[1].(string)
+		}
+	}
+	// Writing the handover reads the tab's transcript; give it the request.
+	if _, err := a.Open(OpenRequest{ID: 1, Profile: "claude", Account: "main", Cols: 80, Rows: 24}); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close(1)
+	time.Sleep(500 * time.Millisecond)
+	tab := a.tab(1)
+	tab.mu.Lock()
+	tab.session = filepath.Join(t.TempDir(), "s.jsonl")
+	os.WriteFile(tab.session, []byte(`{"type":"user","message":{"role":"user","content":"please QUIET-REVIEW this"}}`+"\n"), 0o644)
+	tab.mu.Unlock()
+	a.ChatSend(1, "review me", nil)
+	select {
+	case st := <-steps:
+		if st != "Read app.go" {
+			t.Fatalf("step %q", st)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("no review:step from the reviewer")
+	}
+	select {
+	case fb := <-done:
+		if !strings.Contains(fb, "FINDINGS: fix the edge case") || !strings.Contains(fb, "Looking at it.") || strings.Count(fb, "Looking at it.") != 1 {
+			t.Fatalf("feedback %q", fb)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("review never finished")
+	}
+}
