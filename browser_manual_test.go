@@ -27,6 +27,15 @@ func TestRealBrowserHelpClaude(t *testing.T) {
 	realBrowser(t, "claude", Account{ID: "claude-main", Label: "Claude", Provider: "claude"}, true)
 }
 
+// With permissions off the AI browses without any question about the site.
+func TestRealBrowserFreeChatGPT(t *testing.T) {
+	browserTestFree = true
+	defer func() { browserTestFree = false }()
+	realBrowser(t, "codex", Account{ID: "codex-main", Label: "ChatGPT", Provider: "codex"})
+}
+
+var browserTestFree bool
+
 func realBrowser(t *testing.T, profile string, acct Account, help ...bool) {
 	forgetTestChats(t)
 	home, _ := os.UserHomeDir()
@@ -45,6 +54,9 @@ func realBrowser(t *testing.T, profile string, acct Account, help ...bool) {
 		t.Fatal(err)
 	}
 	c := store.Config()
+	if browserTestFree {
+		c.Permissions = "never"
+	}
 	c.Args = map[string][]string{"codex": {"-m", "gpt-5.6-luna"}, "claude": {"--model", "haiku"}}
 	c.StartingDir = t.TempDir()
 	c.MemoryDir = t.TempDir()
@@ -91,6 +103,9 @@ func realBrowser(t *testing.T, profile string, acct Account, help ...bool) {
 						}
 						continue
 					}
+					if browserTestFree {
+						t.Fatalf("a site was asked about with permissions off: %v", e)
+					}
 					if e["desc"] != "open example.com" {
 						t.Fatalf("question %v", e)
 					}
@@ -124,7 +139,7 @@ func realBrowser(t *testing.T, profile string, acct Account, help ...bool) {
 	}
 	a.browser.mu.Unlock()
 	t.Logf("asked=%v\nsteps:\n  %s\nanswer: %s", asked, strings.Join(steps, "\n  "), strings.TrimSpace(text.String()))
-	if !asked {
+	if !asked && !browserTestFree {
 		t.Error("the user was never asked about example.com")
 	}
 	if len(help) > 0 && !helped {

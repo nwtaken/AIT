@@ -468,6 +468,7 @@ func (a *App) browserEnsureView(l *browserLog) error {
 		return err
 	}
 	l.view = v
+	a.browserNote("window of %s opened (port %d, %s)", l.key[:min(8, len(l.key))], l.port, map[bool]string{true: "private", false: "kept profile"}[temp])
 	a.browserUsed(l)
 	go a.watchPage(l, v)
 	if l.tab != nil {
@@ -509,6 +510,7 @@ func freePort() (int, error) {
 
 // closeBrowser removes a chat's browser (its window and, when private, its data).
 func (a *App) closeBrowser(key string) {
+	a.browserNote("browser %s removed (its chat was closed, restarted or AIT is quitting)", key[:min(8, len(key))])
 	a.browser.mu.Lock()
 	l := a.browser.logs[key]
 	delete(a.browser.logs, key)

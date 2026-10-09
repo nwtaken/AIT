@@ -172,6 +172,8 @@ func (a *App) browserMcp(t *Tab, p Provider) *McpServer {
 	cfg, _ := json.Marshal(map[string]any{
 		"browser":   map[string]any{"browserName": "chromium", "cdpEndpoint": fmt.Sprintf("http://127.0.0.1:%d", port)},
 		"outputDir": filepath.Join(dir, "output"),
+		// The gate decides what the AI may open (nothing local unless permissions are off).
+		"allowUnrestrictedFileAccess": true,
 	})
 	if os.WriteFile(gatePath, gate, 0o644) != nil || os.WriteFile(cfgPath, cfg, 0o644) != nil {
 		return nil
@@ -199,6 +201,7 @@ func (a *App) browserBase() (string, error) {
 	mux.HandleFunc("/help", a.browserHelpHTTP)
 	mux.HandleFunc("/front", a.browserFrontHTTP)
 	mux.HandleFunc("/close", a.browserCloseHTTP)
+	mux.HandleFunc("/mode", a.browserModeHTTP)
 	go http.Serve(ln, mux)
 	h.base = "http://" + ln.Addr().String()
 	return h.base, nil
@@ -219,17 +222,47 @@ func (a *App) browserLogFor(key string) *browserLog {
 	return a.browser.logs[key]
 }
 
+// browserFree: with permissions switched to "never ask" the AI browses
+// freely: no questions about sites, nothing held back. It only hands over what
+// a person has to do (a CAPTCHA, a sign-in).
+func (a *App) browserFree() bool { return a.store.Config().Permissions == "never" }
+
+// browserModeHTTP tells the gate which mode applies right now (the setting can
+// change while a chat is running).
+func (a *App) browserModeHTTP(w http.ResponseWriter, r *http.Request) {
+	if a.browserFree() {
+		fmt.Fprint(w, "free")
+		return
+	}
+	fmt.Fprint(w, "ask")
+}
+
 // browserCloseHTTP is the gate telling AIT the AI closed its browser: the
 // window goes. The next browser call opens a fresh one.
 func (a *App) browserCloseHTTP(w http.ResponseWriter, r *http.Request) {
 	if l := a.browserLogFor(r.URL.Query().Get("key")); l != nil {
-		a.browserCloseView(l)
+		a.browserCloseView(l, "the AI called browser_close")
 	}
 	fmt.Fprint(w, "ok")
 }
 
+// browserNote appends a line to the browser's own log (AIT's folder, browser\log.txt),
+// so a window that closes by itself leaves a reason.
+func (a *App) browserNote(format string, args ...any) {
+	f, err := os.OpenFile(filepath.Join(a.store.browserDir(), "log.txt"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err == nil && st.Size() > 256<<10 {
+		f.Truncate(0)
+	}
+	fmt.Fprintf(f, "%s  %s\n", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(format, args...))
+}
+
 // browserCloseView closes the browser's window but keeps the chat's log.
-func (a *App) browserCloseView(l *browserLog) {
+func (a *App) browserCloseView(l *browserLog, why string) {
+	a.browserNote("window of %s closed: %s", l.key[:min(8, len(l.key))], why)
 	l.viewMu.Lock()
 	v := l.view
 	l.view = nil
@@ -273,7 +306,7 @@ func (a *App) browserReap() {
 		for _, l := range logs {
 			if a.browserShouldReap(l, now) {
 				a.browserLogStep(l, "do", "Closed the browser: it was not used for a while")
-				a.browserCloseView(l)
+				a.browserCloseView(l, "unused for "+now.Sub(l.last).Round(time.Second).String())
 			}
 		}
 	}
@@ -353,6 +386,9 @@ func (a *App) browserAskHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) browserAllow(ctx context.Context, l *browserLog, key, host string) bool {
+	if a.browserFree() {
+		return true
+	}
 	h := &a.browser
 	h.mu.Lock()
 	if l.allowed[host] || slices.Contains(a.store.Config().BrowserSites, host) {

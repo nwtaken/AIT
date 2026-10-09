@@ -252,6 +252,23 @@ func TestRealBrowserSurface(t *testing.T) {
 	if v2 == nil || v2.hwnd == hwnd || v2.hwnd == 0 {
 		t.Errorf("no new window after closing: %+v", v2)
 	}
+	// AIT closes the window on its own side (idle for a while, the chat restarted) while the AI still
+	// believes the browser is open: its next call must get a working browser again.
+	hwnd2 := l.view.hwnd
+	app.browserCloseView(l, "test: closed behind the AI's back")
+	if isWin, _, _ := user32.NewProc("IsWindow").Call(hwnd2); isWin != 0 {
+		t.Error("the window is still there after AIT closed it")
+	}
+	isErr, text = call("browser_navigate", map[string]any{"url": "https://example.com/?after-aits-close"})
+	if isErr || !strings.Contains(text, "Example Domain") {
+		t.Fatalf("navigate after AIT closed the window: %v %s", isErr, text)
+	}
+	l.viewMu.Lock()
+	v3 := l.view
+	l.viewMu.Unlock()
+	if v3 == nil || v3.hwnd == hwnd2 {
+		t.Errorf("no new window: %+v", v3)
+	}
 	// Left open and unused: the idle check closes it (the clock is moved, not waited for).
 	tab.working.Store(false)
 	if app.browserShouldReap(l, time.Now()) {
@@ -265,7 +282,7 @@ func TestRealBrowserSurface(t *testing.T) {
 		t.Error("closed a browser while the AI is working")
 	}
 	tab.working.Store(false)
-	app.browserCloseView(l)
+	app.browserCloseView(l, "test")
 	if st := app.BrowserState(1); st["open"] != false {
 		t.Errorf("not closed: %v", st)
 	}

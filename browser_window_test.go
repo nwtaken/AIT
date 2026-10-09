@@ -175,3 +175,62 @@ func TestBrowserColumnState(t *testing.T) {
 		t.Error("the column's answer did not arrive")
 	}
 }
+
+// With permissions switched to "never ask" the AI browses freely: no question
+// about a site, and the gate is told so at each call (the setting can change
+// while a chat runs).
+func TestBrowserFreeWithoutPermissions(t *testing.T) {
+	store, _ := newStoreAt(t.TempDir(), t.TempDir())
+	app := NewApp(store)
+	var asked int
+	app.emit = func(event string, data ...any) {
+		if event == "chat:ev" {
+			for _, e := range data[1].([]Ev) {
+				if e["k"] == "ask" {
+					asked++
+				}
+			}
+		}
+	}
+	tab := &Tab{id: 3, agent: registry["claude"], profile: "claude"}
+	tab.adopted.Store(true)
+	app.tabs[3] = tab
+	app.browser.logs = map[string]*browserLog{"k": {key: "k", tab: tab, ai: "Claude", allowed: map[string]bool{}}}
+	base, _ := app.browserBase()
+	get := func(path string) string {
+		res, err := http.Get(base + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return string(b)
+	}
+	setPerm := func(p string) {
+		c := store.Config()
+		c.Permissions = p
+		store.saveConfig(c)
+	}
+	setPerm("never")
+	if m := get("/mode?key=k"); m != "free" {
+		t.Errorf("mode with permissions off: %q", m)
+	}
+	if r := get("/ask?key=k&host=example.org"); r != "allow" || asked != 0 {
+		t.Errorf("a site was asked about with permissions off: %q, %d cards", r, asked)
+	}
+	setPerm("ask")
+	if m := get("/mode?key=k"); m != "ask" {
+		t.Errorf("mode with permissions on: %q", m)
+	}
+	done := make(chan string, 1)
+	go func() { done <- get("/ask?key=k&host=example.org") }()
+	for i := 0; i < 300 && func() bool { app.browser.mu.Lock(); defer app.browser.mu.Unlock(); return len(app.browser.asks) == 0 }(); i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := app.ChatAnswer(3, askPrefix+"1", "deny"); err != nil {
+		t.Fatal(err)
+	}
+	if r := <-done; r != "deny" {
+		t.Errorf("with permissions on the site is asked about: %q", r)
+	}
+}

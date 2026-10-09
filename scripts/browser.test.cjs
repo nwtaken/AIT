@@ -21,12 +21,13 @@ if (!fs.existsSync(cli) || !exe) { console.log("Browser test skipped: Playwright
 
 const KEY = "testkey";
 const asked = [], helped = [];
-let opened = 0, fronted = 0, closed = 0;
+let opened = 0, fronted = 0, closed = 0, mode = "ask";
 const answers = { "example.com": "allow", "example.net": "deny", "example.org": "deny" };
 let base = "";
 const fake = http.createServer((req, res) => {
   const u = new URL(req.url, "http://x");
   if (u.searchParams.get("key") !== KEY) { res.writeHead(404); return res.end(); }
+  if (u.pathname === "/mode") return res.end(mode);
   if (u.pathname === "/open") { opened++; return res.end("ok"); }
   if (u.pathname === "/close") { closed++; return res.end("ok"); }
   if (u.pathname === "/front") { fronted++; return res.end("ok"); }
@@ -44,7 +45,7 @@ const dev = http.createServer((req, res) => { res.setHeader("content-type", "tex
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aitbrowser-"));
   fs.writeFileSync(path.join(tmp, "config.json"), JSON.stringify({
     browser: { browserName: "chromium", isolated: true, launchOptions: { executablePath: exe, headless: true }, contextOptions: { viewport: null } },
-    outputDir: path.join(tmp, "out"),
+    outputDir: path.join(tmp, "out"), allowUnrestrictedFileAccess: true,
   }));
   const gate = spawn(process.execPath, [path.join(__dirname, "..", "browserassets", "gate.cjs"), "--ait", base, "--key", KEY, "--cli", cli, "--config", path.join(tmp, "config.json")], { stdio: ["pipe", "pipe", "inherit"] });
   let buf = "", id = 0;
@@ -70,15 +71,19 @@ const dev = http.createServer((req, res) => { res.setHeader("content-type", "tex
     const done = await tool("browser_ask_user", { message: "Solve the CAPTCHA" });
     assert.ok(!done.err && /finished/.test(done.text) && helped[0] === "Solve the CAPTCHA", "asking the user waits for them and reports it: " + done.text);
     assert.equal(opened, 1, "the browser starts on the first call");
+    const firstOpens = opened;
     const skipped = await tool("browser_ask_user", { message: "please skip this" });
     assert.ok(skipped.err && /skipped/.test(skipped.text), "a step the user skips is reported as such: " + skipped.text);
 
+    const beforeNav = opened;
     const a = await tool("browser_navigate", { url: "https://example.com" });
     assert.ok(!a.err && /Page URL: https:\/\/example\.com/.test(a.text), "an allowed site opens: " + a.text.slice(0, 120));
     assert.deepEqual(asked, ["example.com"], "the first visit asks");
+    assert.equal(opened, beforeNav + 1, "AIT is asked to make sure its window exists before every call");
     await tool("browser_navigate", { url: "https://www.example.com/" });
+    const afterSecond = opened;
     assert.deepEqual(asked, ["example.com"], "an allowed site is not asked again, with or without www");
-    assert.equal(opened, 1, "the browser is started once");
+    assert.equal(afterSecond, beforeNav + 2, "and again for the next call (a window AIT closed in between would come back)");
 
     const shot = await tool("browser_take_screenshot", {});
     assert.ok(!shot.err && fronted === 1, "a screenshot first brings the window back: fronted=" + fronted + " " + shot.text.slice(0, 80));
@@ -107,7 +112,28 @@ const dev = http.createServer((req, res) => { res.setHeader("content-type", "tex
     const closeRes = await tool("browser_close", {});
     assert.ok(!closeRes.err && closed === 1, "closing the browser tells AIT: closed=" + closed + " " + closeRes.text.slice(0, 100));
     const again = await tool("browser_navigate", { url: "https://www.example.com/" });
-    assert.ok(!again.err && opened === before + 1, "the next call opens the browser again: opened=" + opened + " (was " + before + ") " + again.text.slice(0, 100));
+    assert.ok(!again.err && opened > before, "the next call opens the browser again: opened=" + opened + " (was " + before + ") " + again.text.slice(0, 100));
+
+    // With permissions off ("free"): no questions about sites, nothing held back; only people-only steps are handed over.
+    mode = "free";
+    const freeTools = (await rpc("tools/list", {})).result.tools.map((t) => t.name);
+    for (const t of ["browser_run_code_unsafe", "browser_file_upload", "browser_drop"]) assert.ok(freeTools.includes(t), t + " is offered when permissions are off");
+    assert.ok(freeTools.includes("browser_ask_user"), "and the AI can still hand over a CAPTCHA");
+    const askedFree = asked.length;
+    const refused = await tool("browser_navigate", { url: "https://example.org" }); // answers[] would deny it in ask mode
+    assert.ok(!refused.err && asked.length === askedFree, "a site is opened without asking: " + refused.text.slice(0, 100));
+    const file = await tool("browser_navigate", { url: "file:///C:/Windows/win.ini" });
+    assert.ok(!file.err, "any address opens: " + file.text.slice(0, 100));
+    await tool("browser_navigate", { url: `http://localhost:${dev.address().port}/` });
+    const click = await tool("browser_evaluate", { function: "() => { document.getElementById('out').click(); return 'clicked'; }" });
+    await new Promise((r) => setTimeout(r, 1500));
+    const landed = await tool("browser_evaluate", { function: "() => location.href" });
+    assert.ok(!click.err && !landed.err && /example\.net/.test(landed.text) && asked.length === askedFree, "a click may lead anywhere: " + landed.text.slice(0, 100));
+    const help = await tool("browser_ask_user", { message: "Solve the CAPTCHA" });
+    assert.ok(!help.err, "CAPTCHAs are still handed to the user");
+    mode = "ask";
+    const back = await tool("browser_navigate", { url: "https://example.org" });
+    assert.ok(back.err && /did not allow example\.org/.test(back.text), "switching permissions back on asks again: " + back.text.slice(0, 100));
 
     console.log("Browser gate: hidden tools, site questions, local files, dev servers, redirects by click, asking you for help and starting on first use passed.");
     finish(0);
