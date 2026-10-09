@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -89,15 +88,9 @@ func TestBrowserStepsAndSiteQuestions(t *testing.T) {
 	root := t.TempDir()
 	store, _ := newStoreAt(root, t.TempDir())
 	app := NewApp(store)
-	var amu, smu sync.Mutex
+	var amu sync.Mutex
 	var asks []Ev
-	var stepEvents []string
 	app.emit = func(event string, data ...any) {
-		if event == "browser:step" {
-			smu.Lock()
-			stepEvents = append(stepEvents, fmt.Sprint(data[0], " ", data[1], " ", data[2]))
-			smu.Unlock()
-		}
 		if event == "chat:ev" {
 			for _, e := range data[1].([]Ev) {
 				if e["k"] == "ask" {
@@ -140,16 +133,11 @@ func TestBrowserStepsAndSiteQuestions(t *testing.T) {
 		t.Fatalf("steps %v", steps)
 	}
 	if st["open"] != false {
-		t.Errorf("no surface yet: %v", st["open"])
+		t.Errorf("no window yet: %v", st["open"])
 	}
 	if app.BrowserState(99) != nil {
 		t.Error("an unknown tab has no browser")
 	}
-	smu.Lock()
-	if len(stepEvents) != 3 || stepEvents[1] != "7 do Open example.com" {
-		t.Errorf("the pane is told each step: %v", stepEvents)
-	}
-	smu.Unlock()
 
 	ask := func(host, decision string) string {
 		out := make(chan string, 1)
@@ -203,11 +191,10 @@ func TestBrowserStepsAndSiteQuestions(t *testing.T) {
 	if r := get("/ask?key=k2&host=example.net"); r != "allow" {
 		t.Fatalf("always allowed: %s", r)
 	}
-	smu.Lock()
-	if last := stepEvents[len(stepEvents)-1]; last != "7 error Not allowed to open example.org" {
-		t.Errorf("the refusal shows in the pane: %v", stepEvents)
+	refused := app.BrowserState(7)["steps"].([]BrowserStep)
+	if last := refused[len(refused)-1]; last.Kind != "error" || last.Text != "Not allowed to open example.org" {
+		t.Errorf("the refusal shows in the browser window's steps: %+v", last)
 	}
-	smu.Unlock()
 	if err := app.BrowserForget("example.net"); err != nil || len(store.Config().BrowserSites) != 0 {
 		t.Fatalf("forget: %v %v", err, store.Config().BrowserSites)
 	}

@@ -124,7 +124,7 @@ func (a *App) startup(ctx context.Context) {
 	// The first agent starts now, while the window is still loading.
 	go a.prepareStandby()
 	go a.browserInstall()
-	go a.browserFollow()
+	go a.browserReap()
 	a.startUpdateChecks()
 	a.startTray()
 	// Warm the history cache once the agent has started; doing it at once

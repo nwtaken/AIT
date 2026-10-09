@@ -17,12 +17,13 @@ import (
 	"time"
 )
 
-// The AIs' own web browser, inside AIT. Playwright's MCP server (installed
-// once into AIT's folder) drives a WebView2 surface of AIT's own
-// (browserview.go) through its debugging port; the pane around it, with the
-// steps and the questions, is AIT's page. gate.cjs sits between the AI and
-// Playwright: it starts the surface on first use, asks the user before a site
-// is opened for the first time and lets the AI hand a step to the user.
+// The AIs' own web browser: a window of AIT's, like a live stream. Playwright's
+// MCP server (installed once into AIT's folder) drives the page in it through
+// its debugging port (browserview.go); the column beside the page, with the
+// steps and the questions, is AIT's own. gate.cjs sits between the AI and
+// Playwright: it opens the window on first use, closes it with browser_close,
+// asks the user before a site is opened for the first time and lets the AI
+// hand a step to the user.
 //
 //go:embed browserassets/gate.cjs
 var browserAssets embed.FS
@@ -33,7 +34,7 @@ const (
 	askPrefix     = "ait-browser-" // permission cards for sites, answered through ChatAnswer
 )
 
-// BrowserStep is one line of the pane's steps.
+// BrowserStep is one line of the browser window's steps.
 type BrowserStep struct {
 	Seq  int    `json:"seq"`
 	Kind string `json:"kind"` // plan | do | error
@@ -51,10 +52,12 @@ type browserLog struct {
 	allowed map[string]bool // sites the user allowed for this chat's browser
 
 	viewMu sync.Mutex
-	view   *browserView // nil until the AI first uses the browser
+	view   *browserView // nil until the AI first uses the browser, and again once it is closed
+	last   time.Time    // the AI's last use of the browser (a.browser.mu)
 }
 
 type browserAsk struct {
+	n         int // order of asking
 	key, host string
 	help      bool   // the AI asks the user to do a step in the browser (host is empty)
 	message   string // what the user is asked to do
@@ -67,6 +70,25 @@ type browserHub struct {
 	logs    map[string]*browserLog // by key, one per launch
 	asks    map[string]*browserAsk // pending, by request id
 	nextAsk int
+	theme   string // AIT's colours as the main page last sent them (JSON)
+}
+
+// sortedAsks lists a browser's pending questions in the order they were asked.
+func sortedAsks(asks map[string]*browserAsk, key string) []string {
+	var reqs []string
+	for req, p := range asks {
+		if p.key == key {
+			reqs = append(reqs, req)
+		}
+	}
+	slices.SortFunc(reqs, func(x, y string) int { return asks[x].n - asks[y].n })
+	return reqs
+}
+
+func (a *App) browserPending(req string) *browserAsk {
+	a.browser.mu.Lock()
+	defer a.browser.mu.Unlock()
+	return a.browser.asks[req]
 }
 
 func (s *Store) browserDir() string { return filepath.Join(s.root, "browser") }
@@ -175,15 +197,122 @@ func (a *App) browserBase() (string, error) {
 	mux.HandleFunc("/open", a.browserOpenHTTP)
 	mux.HandleFunc("/ask", a.browserAskHTTP)
 	mux.HandleFunc("/help", a.browserHelpHTTP)
+	mux.HandleFunc("/front", a.browserFrontHTTP)
+	mux.HandleFunc("/close", a.browserCloseHTTP)
 	go http.Serve(ln, mux)
 	h.base = "http://" + ln.Addr().String()
 	return h.base, nil
+}
+
+// browserTouch tells the browser window that the chat started or stopped working.
+func (a *App) browserTouch(t *Tab) {
+	if key, _ := t.browserKey.Load().(string); key != "" {
+		if l := a.browserLogFor(key); l != nil {
+			a.browserPush(l)
+		}
+	}
 }
 
 func (a *App) browserLogFor(key string) *browserLog {
 	a.browser.mu.Lock()
 	defer a.browser.mu.Unlock()
 	return a.browser.logs[key]
+}
+
+// browserCloseHTTP is the gate telling AIT the AI closed its browser: the
+// window goes. The next browser call opens a fresh one.
+func (a *App) browserCloseHTTP(w http.ResponseWriter, r *http.Request) {
+	if l := a.browserLogFor(r.URL.Query().Get("key")); l != nil {
+		a.browserCloseView(l)
+	}
+	fmt.Fprint(w, "ok")
+}
+
+// browserCloseView closes the browser's window but keeps the chat's log.
+func (a *App) browserCloseView(l *browserLog) {
+	l.viewMu.Lock()
+	v := l.view
+	l.view = nil
+	l.viewMu.Unlock()
+	if v == nil {
+		return
+	}
+	a.destroyBrowserView(v)
+	if l.tab != nil {
+		a.emit("browser:gone", l.tab.id)
+	}
+}
+
+// browserIdleAfter is how long an unused browser stays open once the AI has
+// stopped working, in case it forgot to close it.
+const browserIdleAfter = 3 * time.Minute
+
+// browserShouldReap: the AI is not working, nothing is waiting for the user,
+// and the browser has not been used for a while.
+func (a *App) browserShouldReap(l *browserLog, now time.Time) bool {
+	l.viewMu.Lock()
+	open := l.view != nil
+	l.viewMu.Unlock()
+	if !open || l.tab == nil || l.tab.working.Load() {
+		return false
+	}
+	a.browser.mu.Lock()
+	defer a.browser.mu.Unlock()
+	return len(sortedAsks(a.browser.asks, l.key)) == 0 && !l.last.IsZero() && now.Sub(l.last) > browserIdleAfter
+}
+
+// browserReap closes browsers the AI left open.
+func (a *App) browserReap() {
+	for now := range time.Tick(20 * time.Second) {
+		a.browser.mu.Lock()
+		logs := make([]*browserLog, 0, len(a.browser.logs))
+		for _, l := range a.browser.logs {
+			logs = append(logs, l)
+		}
+		a.browser.mu.Unlock()
+		for _, l := range logs {
+			if a.browserShouldReap(l, now) {
+				a.browserLogStep(l, "do", "Closed the browser: it was not used for a while")
+				a.browserCloseView(l)
+			}
+		}
+	}
+}
+
+// browserUsed notes that the AI is using its browser.
+func (a *App) browserUsed(l *browserLog) {
+	a.browser.mu.Lock()
+	l.last = time.Now()
+	a.browser.mu.Unlock()
+}
+
+// browserFrontHTTP is the gate asking for the window to be on screen before
+// the AI takes a screenshot: a minimised page does not draw, so there would be
+// nothing to photograph. It comes back without taking the keyboard.
+func (a *App) browserFrontHTTP(w http.ResponseWriter, r *http.Request) {
+	l := a.browserLogFor(r.URL.Query().Get("key"))
+	if l == nil {
+		http.NotFound(w, r)
+		return
+	}
+	l.viewMu.Lock()
+	v := l.view
+	l.viewMu.Unlock()
+	if v != nil {
+		restored := make(chan bool, 1)
+		uiPost(func() {
+			iconic, _, _ := procIsIconic.Call(v.hwnd)
+			if iconic != 0 {
+				const swShowNoActivate = 4
+				procShowWindow.Call(v.hwnd, swShowNoActivate)
+			}
+			restored <- iconic != 0
+		})
+		if <-restored {
+			time.Sleep(500 * time.Millisecond) // the page starts drawing again
+		}
+	}
+	fmt.Fprint(w, "ok")
 }
 
 // browserOpenHTTP is the gate asking for the surface before the AI's first
@@ -232,27 +361,28 @@ func (a *App) browserAllow(ctx context.Context, l *browserLog, key, host string)
 	}
 	h.nextAsk++
 	req := askPrefix + strconv.Itoa(h.nextAsk)
-	pending := &browserAsk{key: key, host: host, answer: make(chan string, 1)}
+	pending := &browserAsk{n: h.nextAsk, key: key, host: host, answer: make(chan string, 1)}
 	if h.asks == nil {
 		h.asks = map[string]*browserAsk{}
 	}
 	h.asks[req] = pending
 	h.mu.Unlock()
-	defer func() {
-		h.mu.Lock()
-		delete(h.asks, req)
-		h.mu.Unlock()
-	}()
 
 	t := l.tab
 	a.chatOut(t, []Ev{{"k": "ask", "req": req, "tool": "WebFetch", "desc": "open " + host, "input": map[string]any{"url": "https://" + host}, "always": true}})
 	a.notifyTab(t, " needs your permission", "", "open "+host, "")
+	a.browserPush(l)
 	var d string
 	select {
 	case d = <-pending.answer:
 	case <-ctx.Done():
 	case <-time.After(10 * time.Minute):
 	}
+	h.mu.Lock()
+	delete(h.asks, req)
+	h.mu.Unlock()
+	a.chatOut(t, []Ev{{"k": "askclose", "req": req, "text": map[bool]string{true: "✓ Allowed", false: "✕ Denied"}[d == "allow" || d == "always"]}})
+	a.browserPush(l)
 	switch d {
 	case "always":
 		a.store.mu.Lock()
@@ -274,8 +404,8 @@ func (a *App) browserAllow(ctx context.Context, l *browserLog, key, host string)
 }
 
 // browserHelpHTTP is the gate handing the user a step the AI cannot do. It
-// waits until the user has done it (or says they cannot) — in the browser's
-// pane or on the card in the chat.
+// waits until the user has done it (or says they cannot) — in the browser
+// window or on the card in the chat.
 func (a *App) browserHelpHTTP(w http.ResponseWriter, r *http.Request) {
 	key, message := r.URL.Query().Get("key"), strings.TrimSpace(r.URL.Query().Get("message"))
 	l := a.browserLogFor(key)
@@ -287,7 +417,7 @@ func (a *App) browserHelpHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.nextAsk++
 	req := askPrefix + "help-" + strconv.Itoa(h.nextAsk)
-	pending := &browserAsk{key: key, help: true, message: message, answer: make(chan string, 1)}
+	pending := &browserAsk{n: h.nextAsk, key: key, help: true, message: message, answer: make(chan string, 1)}
 	if h.asks == nil {
 		h.asks = map[string]*browserAsk{}
 	}
@@ -297,6 +427,7 @@ func (a *App) browserHelpHTTP(w http.ResponseWriter, r *http.Request) {
 	a.browserLogStep(l, "help", "Waiting for you: "+message)
 	a.chatOut(t, []Ev{{"k": "ask", "req": req, "tool": "BrowserHelp", "desc": message, "input": map[string]any{}, "labels": map[string]any{"allow": "I'm done", "deny": "Can't do it"}}})
 	a.notifyTab(t, " needs your help", "", message, "")
+	a.browserAttention(l)
 	var d string
 	select {
 	case d = <-pending.answer:
@@ -307,6 +438,7 @@ func (a *App) browserHelpHTTP(w http.ResponseWriter, r *http.Request) {
 	delete(h.asks, req)
 	h.mu.Unlock()
 	a.chatOut(t, []Ev{{"k": "askclose", "req": req, "text": map[bool]string{true: "✓ Done in the browser", false: "✕ Skipped"}[d == "allow"]}})
+	a.browserPush(l)
 	if d == "allow" {
 		a.browserLogStep(l, "do", "You finished that step")
 		fmt.Fprint(w, "allow")
@@ -316,7 +448,8 @@ func (a *App) browserHelpHTTP(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "deny")
 }
 
-// browserAnswer is the user's answer on a site's permission card.
+// browserAnswer is the user's answer to a question, from the chat's card or
+// the browser window.
 func (a *App) browserAnswer(req, decision string) error {
 	a.browser.mu.Lock()
 	p := a.browser.asks[req]
@@ -342,19 +475,18 @@ func (a *App) browserLogStep(l *browserLog, kind, text string) {
 		l.steps = l.steps[len(l.steps)-300:]
 	}
 	a.browser.mu.Unlock()
-	if l.tab != nil {
-		a.emit("browser:step", l.tab.id, kind, text)
-	}
+	a.browserPush(l)
 }
 
 // browserStep records the AI's browser call, with the plan it voiced just
-// before it, for the pane.
+// before it, for the browser window.
 func (a *App) browserStep(t *Tab, plan, tool string, input any) {
 	key, _ := t.browserKey.Load().(string)
 	l := a.browserLogFor(key)
 	if l == nil {
 		return
 	}
+	a.browserUsed(l)
 	if p := browserPlan(plan); p != "" {
 		a.browserLogStep(l, "plan", p)
 	}

@@ -164,6 +164,7 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 			case "msg":
 				if !t.working.Swap(true) {
 					a.trayTooltip()
+					a.browserTouch(t)
 				}
 				turnText.Reset()
 				lastText = ""
@@ -191,6 +192,7 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 			case "done":
 				planText = ""
 				t.working.Store(false)
+				a.browserTouch(t)
 				a.trayTooltip()
 				text := strings.TrimSpace(turnText.String())
 				if text == "" {

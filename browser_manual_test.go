@@ -37,7 +37,7 @@ func realBrowser(t *testing.T, profile string, acct Account, help ...bool) {
 	if !fileExists(filepath.Join(src, "node_modules", "@playwright", "mcp", "cli.js")) {
 		t.Skip("the browser is not installed (start AIT once)")
 	}
-	if out, err := exec.Command("robocopy", src, filepath.Join(root, "browser"), "/E", "/NFL", "/NDL", "/NJH", "/NJS", "/XD", "profile", "output").CombinedOutput(); err != nil && !strings.Contains(err.Error(), "exit status 1") {
+	if out, err := exec.Command("robocopy", src, filepath.Join(root, "browser"), "/E", "/NFL", "/NDL", "/NJH", "/NJS", "/XD", "profile", "output", "tmp").CombinedOutput(); err != nil && !strings.Contains(err.Error(), "exit status 1") {
 		t.Fatalf("copy: %v %s", err, out)
 	}
 	store, err := newStoreAt(root, home)

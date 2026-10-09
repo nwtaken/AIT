@@ -1,0 +1,123 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+/*AIT_CSS*/
+html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+body { display: flex; flex-direction: column; color: var(--text); font: 12px/1.4 var(--ui); user-select: none; }
+/* The column of AIT's browser window: like a live stream's chat, beside the page. */
+.bw-h { display: flex; align-items: center; gap: 9px; height: 46px; flex: none; padding: 0 14px; background: var(--row); border-bottom: 1px solid var(--line); }
+.bw-live { flex: none; padding: 2px 7px; border-radius: 4px; background: var(--faint); color: var(--bg); font-size: 10.5px; font-weight: 700; letter-spacing: .6px; }
+.bw-live.on { background: var(--err); animation: bwPulse 1.6s ease-in-out infinite; }
+@keyframes bwPulse { 50% { opacity: .65; } }
+.bw-t { min-width: 0; line-height: 1.25; flex: 1; } .bw-t b { display: block; font-size: 13px; font-weight: 600; }
+.bw-t span { display: block; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bw-nav { display: flex; align-items: center; gap: 2px; padding: 7px 8px; flex: none; border-bottom: 1px solid var(--line); }
+.bw-btn { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: 6px; color: var(--muted); cursor: pointer; }
+.bw-btn:hover { background: var(--soft2); color: var(--text); } .bw-btn .mdl { font-size: 12px; }
+.bw-url { flex: 1; min-width: 0; height: 28px; margin-left: 6px; padding: 0 11px; display: flex; align-items: center; gap: 8px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; white-space: nowrap; }
+.bw-lock { font-size: 11px; color: var(--muted); } .bw-lock.warn { color: var(--warn); }
+.bw-host { font-weight: 600; } .bw-title { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.bw-asks { flex: none; } .bw-asks:empty { display: none; }
+.bw-ask { margin: 10px 10px 0; padding: 11px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid var(--accent); animation: bwIn .18s ease-out; }
+.bw-ask b { display: block; font-size: 12.5px; margin-bottom: 3px; }
+.bw-ask p { margin: 0 0 10px; word-break: break-word; user-select: text; }
+.bw-ask .row { display: flex; flex-wrap: wrap; gap: 6px; }
+.bw-ask button { height: 28px; padding: 0 13px; border-radius: 7px; background: var(--soft2); font-weight: 600; cursor: pointer; }
+.bw-ask button:hover { filter: brightness(1.15); } .bw-ask button.go { background: var(--accent); color: var(--bg); }
+.bw-steps { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 10px 4px; display: flex; flex-direction: column; gap: 6px; user-select: text; }
+.bw-steps::-webkit-scrollbar { width: 8px; } .bw-steps::-webkit-scrollbar-thumb { background: var(--hair); border-radius: 4px; }
+.bw-empty { color: var(--faint); padding: 14px 2px; }
+.bw-s { padding: 7px 10px; border-radius: 9px; word-break: break-word; animation: bwIn .18s ease-out; }
+@keyframes bwIn { from { opacity: 0; transform: translateY(4px); } }
+.bw-s .who { display: block; font-size: 10.5px; font-weight: 700; color: var(--accent); margin-bottom: 1px; }
+.bw-s.plan { background: var(--soft); border-left: 2px solid var(--accent); border-radius: 3px 9px 9px 3px; }
+.bw-s.do { background: var(--soft2); }
+.bw-s.help { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.bw-s.error { background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--err); }
+.bw-foot { flex: none; padding: 8px 14px 11px; border-top: 1px solid var(--line); color: var(--faint); font-size: 11px; }
+</style>
+</head>
+<body class="ready">
+<!-- The right-hand column of the AIs' browser window (browserview.go). AIT puts
+     its stylesheets above and sends the state with update(). -->
+<div class="bw-h"><span class="bw-live">LIVE</span><span class="bw-t"><b>AI is browsing</b><span>Idle</span></span></div>
+<div class="bw-nav">
+  <button class="bw-btn" data-nav="back" title="Back"><span class="mdl">&#xE72B;</span></button>
+  <button class="bw-btn" data-nav="forward" title="Forward"><span class="mdl">&#xE72A;</span></button>
+  <button class="bw-btn" data-nav="reload" title="Reload"><span class="mdl">&#xE72C;</span></button>
+  <span class="bw-url"><span class="mdl bw-lock">&#xE72E;</span><span class="bw-host">New private window</span><span class="bw-title"></span></span>
+</div>
+<div class="bw-asks"></div>
+<div class="bw-steps"><div class="bw-empty">The AI's steps show here as it works.</div></div>
+<div class="bw-foot"></div>
+<script>
+"use strict";
+const post = (m) => window.chrome.webview.postMessage(m);
+const $ = (q) => document.querySelector(q);
+const steps = $(".bw-steps");
+let seq = 0, stick = true, asksKey = "";
+steps.addEventListener("scroll", () => { stick = steps.scrollTop + steps.clientHeight >= steps.scrollHeight - 24; });
+document.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => post("nav:" + b.dataset.nav)));
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+
+function update(s) {
+  const root = document.documentElement;
+  if (s.theme) {
+    for (const [k, v] of Object.entries(s.theme.vars || {})) root.style.setProperty(k, v);
+    if (s.theme.theme) root.dataset.theme = s.theme.theme; else delete root.dataset.theme;
+  }
+  $(".bw-t b").textContent = `${s.ai} is browsing`;
+  $(".bw-t span").textContent = s.busy ? (lastDo(s.steps) || "Working…") : "Idle";
+  $(".bw-live").classList.toggle("on", !!s.busy);
+  let host = "";
+  try { host = new URL(s.url).host; } catch { host = s.url || ""; }
+  const secure = /^https:/.test(s.url || "");
+  $(".bw-host").textContent = host || "New private window";
+  $(".bw-title").textContent = s.title && s.title !== host ? s.title : "";
+  const lock = $(".bw-lock");
+  lock.innerHTML = secure ? "&#xE72E;" : "&#xE7BA;";
+  lock.classList.toggle("warn", !!s.url && !secure && !/^about:/.test(s.url));
+  $(".bw-foot").textContent = s.keep ? "Logins and cookies are kept between runs (Settings)." : "A private browser: nothing is kept after this chat.";
+
+  const fresh = (s.steps || []).filter((x) => x.seq > seq);
+  if (fresh.length) {
+    steps.querySelector(".bw-empty")?.remove();
+    for (const x of fresh) {
+      seq = x.seq;
+      const el = document.createElement("div");
+      el.className = "bw-s " + x.kind;
+      if (x.kind === "plan") { const w = document.createElement("span"); w.className = "who"; w.textContent = s.ai; el.append(w); }
+      el.append(document.createTextNode(x.text));
+      steps.append(el);
+    }
+    while (steps.children.length > 300) steps.firstChild.remove();
+    if (stick) steps.scrollTop = steps.scrollHeight;
+  }
+
+  const asks = s.asks || [];
+  const key = JSON.stringify(asks.map((a) => a.req));
+  if (key !== asksKey) {
+    asksKey = key;
+    $(".bw-asks").replaceChildren(...asks.map((a) => {
+      const box = document.createElement("div");
+      box.className = "bw-ask";
+      box.innerHTML = `<b></b><p></p><div class="row"><button class="go" data-d="allow"></button>${a.always ? '<button data-d="always">Always</button>' : ""}<button data-d="deny"></button></div>`;
+      box.querySelector("b").textContent = a.help ? `${s.ai} needs your help` : `${s.ai} wants to open a site`;
+      box.querySelector("p").textContent = a.text;
+      box.querySelector('[data-d="allow"]').textContent = a.labels?.allow || "Allow";
+      box.querySelector('[data-d="deny"]').textContent = a.labels?.deny || "Deny";
+      box.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => { box.remove(); post(`answer:${a.req}|${b.dataset.d}`); }));
+      return box;
+    }));
+  }
+}
+
+function lastDo(list) {
+  for (let i = (list || []).length - 1; i >= 0; i--) if (list[i].kind === "do") return list[i].text;
+  return "";
+}
+</script>
+</body>
+</html>

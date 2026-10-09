@@ -21,13 +21,15 @@ if (!fs.existsSync(cli) || !exe) { console.log("Browser test skipped: Playwright
 
 const KEY = "testkey";
 const asked = [], helped = [];
-let opened = 0;
+let opened = 0, fronted = 0, closed = 0;
 const answers = { "example.com": "allow", "example.net": "deny", "example.org": "deny" };
 let base = "";
 const fake = http.createServer((req, res) => {
   const u = new URL(req.url, "http://x");
   if (u.searchParams.get("key") !== KEY) { res.writeHead(404); return res.end(); }
   if (u.pathname === "/open") { opened++; return res.end("ok"); }
+  if (u.pathname === "/close") { closed++; return res.end("ok"); }
+  if (u.pathname === "/front") { fronted++; return res.end("ok"); }
   if (u.pathname === "/help") { const m = u.searchParams.get("message"); helped.push(m); return setTimeout(() => res.end(m.includes("skip") ? "deny" : "allow"), 150); }
   if (u.pathname === "/ask") { asked.push(u.searchParams.get("host")); return res.end(answers[u.searchParams.get("host")] || "deny"); }
   res.writeHead(404); res.end();
@@ -78,6 +80,11 @@ const dev = http.createServer((req, res) => { res.setHeader("content-type", "tex
     assert.deepEqual(asked, ["example.com"], "an allowed site is not asked again, with or without www");
     assert.equal(opened, 1, "the browser is started once");
 
+    const shot = await tool("browser_take_screenshot", {});
+    assert.ok(!shot.err && fronted === 1, "a screenshot first brings the window back: fronted=" + fronted + " " + shot.text.slice(0, 80));
+    await tool("browser_snapshot", {});
+    assert.equal(fronted, 1, "reading the page does not");
+
     const b = await tool("browser_navigate", { url: "https://example.org" });
     assert.ok(b.err && /did not allow example\.org/.test(b.text), "a refused site is blocked: " + b.text);
     assert.ok(asked.includes("example.org"));
@@ -94,6 +101,13 @@ const dev = http.createServer((req, res) => { res.setHeader("content-type", "tex
     assert.ok(e.err && /did not allow example\.net/.test(e.text) && !/Example Domain/.test(e.text), "a click that leads to a refused site is caught: " + e.text);
     const where = await tool("browser_evaluate", { function: "() => location.href" });
     assert.ok(/about:blank/.test(where.text), "and the page is sent back to a blank page: " + where.text);
+
+    // Closing: AIT is told, and the next call asks it to open a window again.
+    const before = opened;
+    const closeRes = await tool("browser_close", {});
+    assert.ok(!closeRes.err && closed === 1, "closing the browser tells AIT: closed=" + closed + " " + closeRes.text.slice(0, 100));
+    const again = await tool("browser_navigate", { url: "https://www.example.com/" });
+    assert.ok(!again.err && opened === before + 1, "the next call opens the browser again: opened=" + opened + " (was " + before + ") " + again.text.slice(0, 100));
 
     console.log("Browser gate: hidden tools, site questions, local files, dev servers, redirects by click, asking you for help and starting on first use passed.");
     finish(0);

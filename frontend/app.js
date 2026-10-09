@@ -824,6 +824,20 @@ function togglePin() {
 
 // ---- theme ----------------------------------------------------------------------
 
+// The browser window looks like AIT: it is sent AIT's colours.
+function browserTheme() {
+  const root = document.documentElement, vars = {};
+  for (const k of root.style) vars[k] = root.style.getPropertyValue(k);
+  API().BrowserTheme?.(JSON.stringify({ vars, theme: root.dataset.theme || "" }))?.catch?.(() => {});
+}
+
+function browserButton(tab, on) {
+  const chip = tab.chat?.root.querySelector(".c-browser");
+  if (!chip) return;
+  chip.hidden = !on;
+  chip.onclick = on ? (e) => { e.stopPropagation(); API().BrowserShow(tab.id); } : null;
+}
+
 function applyTheme() {
   const root = document.documentElement;
   root.dataset.theme = ui.theme;
@@ -838,6 +852,7 @@ function applyTheme() {
   }
   root.style.setProperty("--fs", ui.fontSize + "px");
   for (const t of tabs.values()) { if (t.term) { t.term.options.theme = { ...theme().term }; drawPred(t); } }
+  browserTheme();
 }
 
 function setTheme(id) {
@@ -1142,10 +1157,9 @@ async function boot() {
   RT().EventsOn("review:start", (id, name) => { const t = tabs.get(id); if (t?.native) reviewState(t, "start", name); });
   RT().EventsOn("review:step", (id, step) => { const t = tabs.get(id); if (t?.native) reviewStep(t, step); });
   RT().EventsOn("review:done", (id, name, feedback) => { const t = tabs.get(id); if (t?.native) reviewState(t, "done", name, feedback); });
-  RT().EventsOn("browser:open", (id) => { const t = tabs.get(id); if (t?.native) browserSeen(t); });
-  RT().EventsOn("browser:step", (id, kind, text) => { const t = tabs.get(id); if (t?.native) browserStep(t, kind, text); });
-  RT().EventsOn("browser:page", (id, url, title) => { const t = tabs.get(id); if (t?.native) browserPage(t, url, title); });
-  RT().EventsOn("browser:gone", (id) => { const t = tabs.get(id); if (t?.native) browserGone(t); });
+  // The AI's browser is a window of its own; the chat keeps a button that brings it forward.
+  RT().EventsOn("browser:open", (id) => { const t = tabs.get(id); if (t?.native) browserButton(t, true); browserTheme(); });
+  RT().EventsOn("browser:gone", (id) => { const t = tabs.get(id); if (t?.native) browserButton(t, false); });
   RT().EventsOn("mcpfix:step", (id, name, step) => { const t = tabs.get(id); if (t?.native) mcpFixStep(t, name, step); });
   RT().EventsOn("mcpfix:open", (id, name, url) => { const t = tabs.get(id); if (t?.native) mcpFixOpen(t, name, url); });
   RT().EventsOn("mcpfix:done", (id, name, fixed, summary) => { const t = tabs.get(id); if (t?.native) mcpFixDone(t, name, fixed, summary); });

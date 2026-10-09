@@ -16,7 +16,7 @@ const assert = require("node:assert/strict");
     for (const file of ["style.css", "chat.css", "term.css"]) {
       await page.addStyleTag({ path: path.join(frontend, file) });
     }
-    for (const file of ["vendor/marked.js", "app.js", "chat.js", "browserpane.js", "settings.js", "setup.js"]) {
+    for (const file of ["vendor/marked.js", "app.js", "chat.js", "settings.js", "setup.js"]) {
       await page.addScriptTag({ path: path.join(frontend, file) });
     }
     await page.evaluate(() => {
@@ -132,67 +132,69 @@ const assert = require("node:assert/strict");
     assert.deepEqual(help.buttons, ["I'm done", "Can't do it"], "with its own buttons");
     assert.deepEqual(help.tray, { allow: "I'm done", deny: "Can't do it" }, "the tray panel uses them too");
     assert.ok(help.after === "✓ Done in the browser" && help.pending === 0, "the card closes when it is answered in the browser");
-    // The AI's browser: a pane beside the chat that shows the steps, the page and the questions,
-    // and tells AIT where the native page goes.
-    const bp = await page.evaluate(async () => {
+    // The AI's browser is a window of its own: the chat only gets a button that brings it forward,
+    // and AIT tells it its colours.
+    const bw = await page.evaluate(async () => {
       const tab = tabs.get(1), c = tab.chat, out = {}, log = [];
-      go.main.App.BrowserBounds = async (...a) => log.push(a);
-      go.main.App.BrowserNav = async (...a) => log.push(["nav", ...a]);
-      go.main.App.ChatAnswer = async (...a) => log.push(["answer", ...a]);
-      const wait = (ms = 220) => new Promise((r) => setTimeout(r, ms));
-      const lastBounds = () => [...log].reverse().find((l) => typeof l[5] === "boolean");
-      tab.pane.classList.add("pane", "active"); // the test's tab is a bare box: give it the real pane's layout
-      browserGone(tab); // start fresh (the help card above opened one)
-      browserStep(tab, "plan", "I'll open the docs.");
-      browserStep(tab, "do", "Open example.com");
-      browserPage(tab, "https://example.com/docs", "Docs");
-      await wait();
-      out.shown = tab.pane.classList.contains("bshow");
-      out.steps = [...tab.bp.steps.children].map((e) => e.className.replace("bp-s ", "") + ":" + e.textContent);
-      out.url = tab.bp.el.querySelector(".bp-host").textContent + "|" + tab.bp.el.querySelector(".bp-title").textContent;
-      out.chip = !c.root.querySelector(".c-browser").hidden;
-      const b1 = lastBounds();
-      out.visible = b1[5] === true && b1[3] > 100 && b1[4] > 100;
-      out.chatShrunk = c.root.getBoundingClientRect().right <= tab.bp.el.getBoundingClientRect().left + 1;
-      // A site question shows in the pane as well, and is answered from there.
-      chatEvents(tab, [{ k: "ask", req: "ait-browser-3", tool: "WebFetch", desc: "open example.org", input: { url: "https://example.org" }, always: true }], true);
-      await wait(50);
-      out.ask = tab.bp.asks.textContent;
-      tab.bp.asks.querySelector('[data-d="always"]').click();
-      await wait(50);
-      out.answered = log.find((l) => l[0] === "answer");
-      out.asksLeft = tab.bp.asks.children.length;
-      // Anything drawn over the page hides the native page; closing it brings it back.
-      $("#scrim").hidden = false;
-      await wait();
-      out.hiddenForOverlay = lastBounds()[5] === false;
-      $("#scrim").hidden = true;
-      await wait();
-      out.backAfterOverlay = lastBounds()[5] === true;
-      // Hide and show again with the chip.
-      tab.bp.el.querySelector('[data-act="hide"]').click();
-      await wait();
-      out.hidden = !tab.pane.classList.contains("bshow") && lastBounds()[5] === false;
-      c.root.querySelector(".c-browser").click();
-      await wait();
-      out.reshown = tab.pane.classList.contains("bshow") && lastBounds()[5] === true;
-      tab.bp.el.querySelector('[data-nav="back"]').click();
-      out.nav = log.find((l) => l[0] === "nav");
-      browserGone(tab);
-      out.gone = !tab.bp && !tab.pane.classList.contains("bshow") && c.root.querySelector(".c-browser").hidden;
+      go.main.App.BrowserShow = async (...a) => log.push(["show", ...a]);
+      go.main.App.BrowserTheme = async (t) => log.push(["theme", t]);
+      const chip = c.root.querySelector(".c-browser");
+      out.hiddenAtFirst = chip.hidden;
+      browserButton(tab, true);
+      out.shown = !chip.hidden;
+      chip.click();
+      out.show = log.find((l) => l[0] === "show");
+      browserTheme();
+      const theme = JSON.parse(log.find((l) => l[0] === "theme")[1]);
+      out.theme = typeof theme.vars === "object" && "theme" in theme;
+      browserButton(tab, false);
+      out.hiddenAfter = chip.hidden;
+      chip.click();
+      out.noShowAfter = log.filter((l) => l[0] === "show").length;
       return out;
     });
-    assert.ok(bp.shown && bp.chip, "the browser pane opens beside the chat on its first step");
-    assert.deepEqual(bp.steps, ["plan:I'll open the docs.", "do:Open example.com"], "the plan and the step show in the pane");
-    assert.equal(bp.url, "example.com|Docs", "the pane shows the page's site and title");
-    assert.ok(bp.visible && bp.chatShrunk, "AIT is told where the page goes, and the chat makes room");
-    assert.ok(/example\.org/.test(bp.ask), "a site question shows in the pane");
-    assert.deepEqual(bp.answered, ["answer", 1, "ait-browser-3", "always"], "and is answered from it");
-    assert.equal(bp.asksLeft, 0, "the question leaves the pane once answered");
-    assert.ok(bp.hiddenForOverlay && bp.backAfterOverlay, "the native page steps aside for anything AIT draws over it");
-    assert.ok(bp.hidden && bp.reshown, "the pane hides, and the chip brings it back");
-    assert.deepEqual(bp.nav, ["nav", 1, "back"], "the toolbar's buttons reach the page");
-    assert.ok(bp.gone, "the pane goes when the chat's browser does");
+    assert.ok(bw.hiddenAtFirst && bw.shown && bw.hiddenAfter, "the chat's browser button shows while the AI has a browser window, and hides when it is closed");
+    assert.deepEqual(bw.show, ["show", 1], "the button brings that chat's window forward");
+    assert.ok(bw.theme, "AIT sends the browser window its colours");
+    assert.equal(bw.noShowAfter, 1, "a hidden button does nothing");
+    // The browser window's right-hand column (frontend/browser.html): live-chat style steps, the page's
+    // address, questions with their own buttons, and navigation sent back to AIT.
+    const col = await browser.newPage({ viewport: { width: 340, height: 700 } });
+    col.on("pageerror", (e) => errors.push(e.message));
+    await col.setContent(fs.readFileSync(path.join(frontend, "browser.html"), "utf8").replace("/*AIT_CSS*/", css)
+      .replace("<script>", '<script>window.posted = []; window.chrome = { webview: { postMessage: (m) => posted.push(m) } };</script><script>'));
+    const state = (extra) => ({ ai: "Claude", url: "https://playwright.dev/docs/intro", title: "Installation | Playwright", busy: true, keep: false,
+      steps: [{ seq: 1, kind: "plan", text: "I'll open the docs." }, { seq: 2, kind: "do", text: "Open playwright.dev/docs/intro" }, { seq: 3, kind: "error", text: "Failed: element not found" }],
+      asks: [], theme: { vars: { "--accent": "#88c0d0" }, theme: "campbell" }, ...extra });
+    await col.evaluate((s) => update(s), state());
+    const rows = await col.evaluate(() => ({
+      head: document.querySelector(".bw-t b").textContent, status: document.querySelector(".bw-t span").textContent, live: document.querySelector(".bw-live").classList.contains("on"),
+      host: document.querySelector(".bw-host").textContent, title: document.querySelector(".bw-title").textContent,
+      steps: [...document.querySelectorAll(".bw-s")].map((e) => e.className.replace("bw-s ", "") + ":" + e.textContent.replace(/^Claude/, "")),
+      accent: document.documentElement.style.getPropertyValue("--accent"), foot: document.querySelector(".bw-foot").textContent,
+    }));
+    assert.equal(rows.head, "Claude is browsing", "the column names the AI");
+    assert.ok(rows.live && rows.status === "Open playwright.dev/docs/intro", "LIVE shows while the AI works, with what it is doing");
+    assert.equal(rows.host + "|" + rows.title, "playwright.dev|Installation | Playwright", "the address bar shows the site and the title");
+    assert.deepEqual(rows.steps, ["plan:I'll open the docs.", "do:Open playwright.dev/docs/intro", "error:Failed: element not found"], "the steps read like a live chat");
+    assert.equal(rows.accent, "#88c0d0", "the column takes AIT's colours");
+    assert.ok(/private/i.test(rows.foot), "it says the browser is private");
+    // A later update adds only the new steps.
+    await col.evaluate((s) => update(s), state({ steps: [...state().steps, { seq: 4, kind: "do", text: "Take a screenshot" }], busy: false }));
+    assert.equal(await col.locator(".bw-s").count(), 4, "new steps are added, not repeated");
+    assert.ok(!(await col.locator(".bw-live.on").count()), "LIVE goes out when the AI stops");
+    assert.equal(await col.locator(".bw-t span").textContent(), "Idle");
+    // Questions: a site and a hand-over, each with its own buttons, answered back to AIT.
+    await col.evaluate((s) => update(s), state({ asks: [
+      { req: "ait-browser-1", help: false, text: "example.org", always: true },
+      { req: "ait-browser-help-2", help: true, text: "Please solve the CAPTCHA.", always: false, labels: { allow: "I'm done", deny: "Can't do it" } }] }));
+    const btns = await col.locator(".bw-ask").evaluateAll((els) => els.map((e) => e.querySelector("b").textContent + "|" + [...e.querySelectorAll("button")].map((b) => b.textContent).join("/")));
+    assert.deepEqual(btns, ["Claude wants to open a site|Allow/Always/Deny", "Claude needs your help|I'm done/Can't do it"], "the questions use their own wording and buttons");
+    await col.click('.bw-ask:nth-child(2) [data-d="allow"]');
+    await col.click('.bw-ask [data-d="always"]');
+    await col.click('[data-nav="back"]');
+    assert.deepEqual(await col.evaluate(() => posted), ["answer:ait-browser-help-2|allow", "answer:ait-browser-1|always", "nav:back"], "answers and navigation go back to AIT");
+    await col.close();
     await page.evaluate(() => Object.assign(go.main.App, { McpOff: async () => ["elevenlabs"], McpToggle: async (...a) => calls.push(["mcp", ...a]) }));
     await page.click(".c-mcp");
     await page.evaluate(() => chatEvents(tabs.get(1), [{ k: "mcp", servers: [{ name: "elevenlabs", status: "connected", tools: 27, category: "Other AIs" }, { name: "docs", status: "connected", tools: 8, category: "Websites" }, { name: "Roblox_Studio", status: "connected", tools: 30, category: "Roblox" }] }], true));

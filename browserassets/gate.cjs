@@ -1,6 +1,8 @@
 // AIT's browser gate. It sits between an AI and Playwright's MCP server and
 // passes everything through, except:
-//  - the browser itself (a surface in AIT's window) starts on the first call;
+//  - the browser itself (a window of AIT's) starts on the first call, and is
+//    brought back from the taskbar before a screenshot and closed (for the
+//    next call to reopen) when the AI calls browser_close;
 //  - the first visit to a website asks the user (through AIT) before the
 //    page loads, whether the AI typed the address or a click led there;
 //  - tools that could read local files or run arbitrary code are not offered;
@@ -74,6 +76,16 @@ const open = () => opening || (opening = new Promise((resolve) => {
   http.get(`${BASE}/open?key=${KEY}`, (res) => { res.resume(); res.on("end", () => resolve(res.statusCode === 200)); }).on("error", () => resolve(false));
 }).then((ok) => { if (!ok) opening = null; return ok; }));
 
+const front = () => new Promise((resolve) => {
+  http.get(`${BASE}/front?key=${KEY}`, (res) => { res.resume(); res.on("end", resolve); }).on("error", resolve);
+});
+
+// Tells AIT the AI closed its browser; the next call opens a new window.
+const closeWin = () => new Promise((resolve) => {
+  http.get(`${BASE}/close?key=${KEY}`, (res) => { res.resume(); res.on("end", resolve); }).on("error", resolve);
+}).then(() => { opening = null; });
+
+const closes = new Set(); // ids of browser_close calls in flight
 const calls = new Set(); // ids of tools/call requests in flight
 const lists = new Set(); // ids of tools/list requests in flight
 let own = 0;
@@ -86,6 +98,7 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
     const name = m.params && m.params.name, a = (m.params && m.params.arguments) || {};
     if (HIDDEN.has(name)) return refuse(m.id, "That tool is not available in AIT's browser.");
     if (!(await open())) return refuse(m.id, "AIT could not start its browser. Tell the user.");
+    if (name === "browser_take_screenshot") await front(); // a minimised window does not draw
     if (name === "browser_ask_user") {
       const text = String(a.message || "Help with this step").slice(0, 300);
       if (await ask("help", "message=" + encodeURIComponent(text)))
@@ -97,6 +110,7 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
       if (j.blocked) return refuse(m.id, j.blocked);
       if (j.host && !(await allowed(j.host))) return refuse(m.id, denied(j.host));
     }
+    if (name === "browser_close") closes.add(m.id);
     calls.add(m.id);
   }
   toChild(line);
@@ -111,6 +125,7 @@ readline.createInterface({ input: child.stdout }).on("line", async (line) => {
     m.result.tools = m.result.tools.filter((t) => !HIDDEN.has(t.name)).concat(HELP_TOOL);
     return toAI(m);
   }
+  if (closes.delete(m.id)) await closeWin(); // Playwright has let go: AIT closes the window
   if (calls.delete(m.id) && m.result && Array.isArray(m.result.content)) {
     // A click or script can lead somewhere new: the AI must not see a page
     // the user has not allowed.

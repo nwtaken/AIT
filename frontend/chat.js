@@ -42,7 +42,7 @@ function createChat(tab) {
       <div class="composer">
         <span class="prompt">›</span>
         <div class="field"><div class="chips"></div><textarea rows="1" spellcheck="false" placeholder="Message ${esc(name)}   ·   / for commands"></textarea></div>
-        <button class="cbtn c-browser" title="The AI's browser" hidden><span class="mdl">&#xE774;</span></button>
+        <button class="cbtn c-browser" title="Show the AI's browser window" hidden><span class="mdl">&#xE774;</span></button>
         <button class="cbtn c-mcp" title="MCP servers"><span class="mdl">&#xE71B;</span></button>
         <button class="c-model" title="Switch model"><span class="cm-dot"></span><span class="cm-name">Default</span><span class="mdl small">&#xE70D;</span></button>
         <button class="cbtn c-attach" title="Attach files (Ctrl+Shift+O)"><span class="mdl">&#xE723;</span></button>
@@ -629,7 +629,6 @@ function askCard(tab, e) {
   el.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => answerAsk(tab, e.req, b.dataset.d)));
   c.msg.append(el);
   c.asks.set(e.req, { el, always: e.always, labels: e.labels });
-  browserAsks(tab);
   setBusy(tab, true, "Waiting for you");
   if (c.stick) scrollEnd(c);
 }
@@ -640,7 +639,6 @@ function closeAsk(tab, e) {
   c.asks.delete(e.req);
   a.el.classList.add("answered", /^✕/.test(e.text) ? "denied" : "allowed");
   a.el.querySelector(".ak-act").innerHTML = `<span class="ak-res">${esc(e.text || "")}</span>`;
-  browserAsks(tab);
   setBusy(tab, true);
 }
 
@@ -653,7 +651,6 @@ function answerAsk(tab, req, d) {
   a.el.classList.add("answered", d === "deny" ? "denied" : "allowed");
   const word = a.labels ? (d === "deny" ? "✕ " + a.labels.deny : "✓ " + a.labels.allow) : d === "deny" ? "✕ Denied" : d === "always" ? "✓ Always allowed" : "✓ Allowed";
   a.el.querySelector(".ak-act").innerHTML = `<span class="ak-res">${esc(word)}</span>`;
-  browserAsks(tab);
   setBusy(tab, true);
   c.ta.focus();
 }
@@ -670,7 +667,6 @@ function setBusy(tab, on, verb) {
   setTimeout(trayPush);
   if (on && !c.busy) { c.started = performance.now(); c.outChars = 0; c.verb = VERBS[Math.floor(Math.random() * VERBS.length)]; }
   c.busy = on;
-  browserStatus(tab);
   c.busyEl.hidden = !on || !!c.reading;
   c.busyEl.querySelector(".verb").textContent = verb || c.verb || "Thinking";
   c.busyEl.classList.toggle("waiting", !!verb);
