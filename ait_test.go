@@ -158,6 +158,31 @@ func fakeClaudeStream() {
 			w(`{"type":"result","subtype":"success","is_error":false,"duration_ms":12,"total_cost_usd":0}`)
 			continue
 		}
+		if text == "ask me" { // asks the user two questions the way Claude's AskUserQuestion does
+			w(`{"type":"control_request","request_id":"q1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[` +
+				`{"question":"Which database?","header":"Database","multiSelect":false,"options":[{"label":"Postgres","description":"Relational"},{"label":"SQLite","description":"A file"}]},` +
+				`{"question":"Which extras?","header":"Extras","multiSelect":true,"options":[{"label":"Auth","description":"Login"},{"label":"Docs","description":"Pages"}]}]}}}`)
+			sc.Scan() // the control_response
+			var r struct {
+				Response struct {
+					Response struct {
+						Behavior     string
+						Message      string
+						UpdatedInput struct {
+							Answers   map[string]any `json:"answers"`
+							Questions []any          `json:"questions"`
+						} `json:"updatedInput"`
+					} `json:"response"`
+				} `json:"response"`
+			}
+			json.Unmarshal(sc.Bytes(), &r)
+			rr := r.Response.Response
+			if rr.Behavior == "allow" {
+				text = fmt.Sprintf("answered %v | %v | questions kept: %d", rr.UpdatedInput.Answers["Which database?"], rr.UpdatedInput.Answers["Which extras?"], len(rr.UpdatedInput.Questions))
+			} else {
+				text = "declined: " + rr.Message
+			}
+		}
 		if text == "ask" {
 			w(`{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{"file_path":"x.txt"},"permission_suggestions":[{"type":"setMode"}]}}`)
 			sc.Scan() // the control_response

@@ -33,6 +33,7 @@ func (c *codex) ChatArgs(l Launch, perm string) []string {
 	for _, name := range l.McpOff {
 		args = append(args, "-c", "mcp_servers."+name+".enabled=false")
 	}
+	args = append(args, "-c", "features.default_mode_request_user_input=true") // lets the AI ask the user questions
 	for _, m := range l.Mcp {
 		prefix := "mcp_servers." + m.Name
 		argv, _ := json.Marshal(m.Args)
@@ -322,6 +323,8 @@ func (c *codex) ChatDecode(line []byte, st *ChatState) []Ev {
 		return c.ask(st, line, m)
 	case "mcpServer/elicitation/request":
 		return c.askMcp(st, line, m)
+	case "item/tool/requestUserInput":
+		return c.askQuestions(st, line, m)
 	case "account/rateLimits/updated":
 		var p struct {
 			RL struct {
@@ -454,6 +457,57 @@ func (c *codex) item(st *ChatState, it codexItem, done bool) []Ev {
 		return []Ev{{"k": "result", "id": it.ID, "ok": true, "text": ""}}
 	}
 	return nil
+}
+
+// askQuestions turns the AI's request for user input into a question card.
+func (c *codex) askQuestions(st *ChatState, line []byte, m codexMsg) []Ev {
+	req := strings.Trim(string(m.ID), `"`)
+	st.Asks[req] = json.RawMessage(append([]byte(nil), line...))
+	var p struct {
+		Questions []struct {
+			ID       string `json:"id"`
+			Header   string `json:"header"`
+			Question string `json:"question"`
+			IsOther  bool   `json:"isOther"`
+			IsSecret bool   `json:"isSecret"`
+			Options  []struct {
+				Label       string `json:"label"`
+				Description string `json:"description"`
+			} `json:"options"`
+		} `json:"questions"`
+	}
+	json.Unmarshal(m.Params, &p)
+	var qs []map[string]any
+	for _, q := range p.Questions {
+		opts := []map[string]any{}
+		for _, o := range q.Options {
+			opts = append(opts, map[string]any{"label": o.Label, "description": o.Description})
+		}
+		// With no options the answer is typed text.
+		qs = append(qs, map[string]any{"id": q.ID, "header": q.Header, "question": q.Question, "multi": false, "options": opts,
+			"other": q.IsOther || len(opts) == 0, "secret": q.IsSecret})
+	}
+	if len(qs) == 0 {
+		return nil
+	}
+	return []Ev{{"k": "question", "req": req, "questions": qs}}
+}
+
+// ChatAnswers answers a question card: question id -> the chosen labels or typed text.
+func (c *codex) ChatAnswers(st *ChatState, req string, answers map[string][]string, skipped bool, ask json.RawMessage) []byte {
+	out := map[string]any{}
+	if !skipped {
+		for id, list := range answers {
+			out[id] = map[string]any{"answers": list}
+		}
+	}
+	id, err := strconv.Atoi(req)
+	var rid any = req
+	if err == nil {
+		rid = id
+	}
+	b, _ := json.Marshal(map[string]any{"id": rid, "result": map[string]any{"answers": out}})
+	return append(b, '\n')
 }
 
 // askMcp turns an MCP server's question (Codex asks before an MCP tool runs)

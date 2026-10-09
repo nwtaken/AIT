@@ -98,6 +98,16 @@ func (a *App) fixMcp(t *Tab, p Provider, acct Account, cwd, name, prompt string)
 	a.emit("mcpfix:done", t.id, name, fixed, summary)
 }
 
+// declineQuestion answers a question that nobody is there to answer.
+func declineQuestion(cp ChatProvider, proc *chatProc, st *ChatState, req string) {
+	if q, ok := cp.(questioner); ok {
+		proc.send(q.ChatAnswers(st, req, nil, true, st.Asks[req]))
+	} else {
+		proc.send(cp.ChatReply(st, req, "deny", st.Asks[req]))
+	}
+	delete(st.Asks, req)
+}
+
 // accountHome is the folder an account's AI keeps its settings in.
 func accountHome(p Provider, acct Account) string {
 	if acct.Dir != "" {

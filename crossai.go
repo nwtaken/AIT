@@ -46,6 +46,9 @@ func (a *App) handoverEvents(t *Tab, cp ChatProvider, proc *chatProc, st *ChatSt
 			req, _ := e["req"].(string)
 			proc.send(cp.ChatReply(st, req, "deny", st.Asks[req]))
 			delete(st.Asks, req)
+		case "question":
+			req, _ := e["req"].(string)
+			declineQuestion(cp, proc, st, req)
 		case "error":
 			t.reading, t.handover = false, ""
 			return append(out, Ev{"k": "handover", "state": "failed"}, e)

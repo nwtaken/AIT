@@ -30,6 +30,7 @@ import (
 //	tool    id, name, input                   a tool call, complete
 //	result  id, ok, text                      that tool's result
 //	ask     req, tool, desc, input            permission request; answer with ChatAnswer
+//	question req, questions                   the AI asks the user (a list of questions with options); answer with ChatAnswerQuestion
 //	done    ms, cost, error?                  the turn ended
 //	quota   five, fiveReset, week, weekReset  usage windows, 0..1
 //	user    text                              a user message (history and replays)
@@ -204,6 +205,13 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 					errText, _ := e["error"].(string)
 					a.notifyTab(t, " finished", " stopped", text, errText)
 				}
+			case "question":
+				qs, _ := e["questions"].([]map[string]any)
+				first := "a question"
+				if len(qs) > 0 {
+					first, _ = qs[0]["question"].(string)
+				}
+				a.notifyTab(t, " has a question", "", first, "")
 			case "ask":
 				desc, _ := e["desc"].(string)
 				if desc == "" {
@@ -327,6 +335,34 @@ func (a *App) chatSend(id int, text string, files []string) error {
 		return proc.send(b)
 	}
 	return nil
+}
+
+// questioner is implemented by AIs that can ask the user questions.
+type questioner interface {
+	// ChatAnswers answers one "question" event: answers maps each question's
+	// id to the labels chosen (or the text typed); skipped = the user declined.
+	ChatAnswers(st *ChatState, req string, answers map[string][]string, skipped bool, ask json.RawMessage) []byte
+}
+
+// ChatAnswerQuestion answers a question card.
+func (a *App) ChatAnswerQuestion(id int, req string, answers map[string][]string, skipped bool) error {
+	t := a.tab(id)
+	if t == nil {
+		return fmt.Errorf("no tab")
+	}
+	t.mu.Lock()
+	proc, cp, st := t.chat, chatOf(t.agent), t.chatState
+	t.mu.Unlock()
+	if proc == nil || cp == nil || st == nil {
+		return fmt.Errorf("the agent is not running")
+	}
+	q, ok := cp.(questioner)
+	if !ok {
+		return fmt.Errorf("this AI cannot ask questions")
+	}
+	ask := st.Asks[req]
+	delete(st.Asks, req)
+	return proc.send(q.ChatAnswers(st, req, answers, skipped, ask))
 }
 
 // ChatAnswer answers a permission card: allow | always | deny.

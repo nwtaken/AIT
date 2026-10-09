@@ -132,6 +132,116 @@ const assert = require("node:assert/strict");
     assert.deepEqual(help.buttons, ["I'm done", "Can't do it"], "with its own buttons");
     assert.deepEqual(help.tray, { allow: "I'm done", deny: "Can't do it" }, "the tray panel uses them too");
     assert.ok(help.after === "✓ Done in the browser" && help.pending === 0, "the card closes when it is answered in the browser");
+    // The AI asks questions (Claude's AskUserQuestion, ChatGPT's request_user_input): one card with
+    // the options to choose from, typed answers, and everything sent back together.
+    const qa = await page.evaluate(async () => {
+      const tab = tabs.get(1), c = tab.chat, out = {}, sent = [];
+      go.main.App.ChatAnswerQuestion = async (...a) => sent.push(a);
+      const wait = (ms = 60) => new Promise((r) => setTimeout(r, ms));
+      const questions = [
+        { id: "Which database?", header: "Database", question: "Which database?", multi: false, other: true, options: [{ label: "Postgres", description: "Relational" }, { label: "SQLite", description: "A file" }] },
+        { id: "Which extras?", header: "Extras", question: "Which extras?", multi: true, other: true, options: [{ label: "Auth", description: "Login" }, { label: "Docs", description: "Pages" }] },
+        { id: "name", header: "Name", question: "What should it be called?", multi: false, other: true, options: [] },
+        { id: "key", header: "Key", question: "API key?", multi: false, other: true, secret: true, options: [] },
+      ];
+      chatEvents(tab, [{ k: "question", req: "7", questions }], true);
+      await wait();
+      const card = c.root.querySelector(".qcard");
+      const send = card.querySelector(".q-send");
+      out.title = card.querySelector(".ak-h b").textContent;
+      out.texts = [...card.querySelectorAll(".q-t")].map((e) => e.textContent);
+      out.chips = [...card.querySelectorAll(".q-chip")].map((e) => e.textContent);
+      out.opts = [...card.querySelectorAll(".q:first-child .q-opt:not(.q-other)")].map((e) => e.querySelector(".q-ol").textContent + "/" + e.querySelector(".q-od").textContent);
+      out.kinds = [...card.querySelectorAll(".q")].map((q) => q.querySelector("input[type=radio],input[type=checkbox]")?.type || "text");
+      out.secret = card.querySelectorAll(".q")[3].querySelector(".q-text").type;
+      out.disabledAtFirst = send.disabled;
+      out.pendingIsQuestion = c.asks.get("7").question === true;
+      // Digits are for permission cards: with a question open they do not answer it.
+      const keyBefore = c.asks.size;
+      c.ta.dispatchEvent(new KeyboardEvent("keydown", { key: "1", bubbles: true }));
+      out.digitIgnored = c.asks.size === keyBefore && sent.length === 0;
+      const pick = (q, label) => { const i = [...card.querySelectorAll(".q")[q].querySelectorAll(".q-opt:not(.q-other) input")].find((x) => x.value === label); i.checked = true; i.dispatchEvent(new Event("change", { bubbles: true })); };
+      pick(0, "Postgres"); pick(1, "Auth"); pick(1, "Docs");
+      out.stillDisabled = send.disabled; // two questions are still open
+      const type = (q, text) => { const t = card.querySelectorAll(".q")[q].querySelector(".q-text"); t.value = text; t.dispatchEvent(new Event("input", { bubbles: true })); };
+      type(2, "shop");
+      type(3, "sk-secret");
+      // Typing your own answer to a single-choice question replaces the choice.
+      type(0, "MariaDB");
+      out.radioFollowsText = card.querySelectorAll(".q")[0].querySelector(".q-oi").checked;
+      out.enabled = !send.disabled;
+      send.click();
+      await wait();
+      out.sent = sent[0];
+      out.summary = [...card.querySelectorAll(".q-sum")].map((e) => e.textContent);
+      out.result = card.querySelector(".ak-res").textContent;
+      out.cleared = c.asks.size === 0;
+      // Skipping.
+      chatEvents(tab, [{ k: "question", req: "8", questions: [questions[0]] }], true);
+      await wait();
+      const card2 = [...c.root.querySelectorAll(".qcard")].pop();
+      card2.querySelector(".q-skip").click();
+      await wait();
+      out.skipped = sent[1];
+      out.skipText = card2.querySelector(".ak-res").textContent;
+      return out;
+    });
+    assert.equal(qa.title, "Claude has 4 questions", "the card says how many questions there are");
+    assert.deepEqual(qa.texts, ["Which database?", "Which extras?", "What should it be called?", "API key?"], "every question is shown");
+    assert.deepEqual(qa.chips, ["Database", "Extras", "Name", "Key"], "with its short heading");
+    assert.deepEqual(qa.opts, ["Postgres/Relational", "SQLite/A file"], "options come with their descriptions");
+    assert.deepEqual(qa.kinds, ["radio", "checkbox", "text", "text"], "one choice, several choices or typed text");
+    assert.equal(qa.secret, "password", "a secret answer is masked");
+    assert.ok(qa.disabledAtFirst && qa.stillDisabled && qa.enabled, "Send waits until every question has an answer");
+    assert.ok(qa.pendingIsQuestion && qa.digitIgnored, "the 1/2/3 permission shortcuts do not answer a question");
+    assert.ok(qa.radioFollowsText, "typing your own answer selects Other");
+    assert.deepEqual(qa.sent, [1, "7", { "Which database?": ["MariaDB"], "Which extras?": ["Auth", "Docs"], name: ["shop"], key: ["sk-secret"] }, false], "all answers go back together");
+    assert.deepEqual(qa.summary, ["Database: MariaDB", "Extras: Auth, Docs", "Name: shop", "Key: ••••"], "the card keeps a summary, masking the secret");
+    assert.ok(qa.result === "✓ Answered" && qa.cleared, "the question is closed once answered");
+    assert.deepEqual(qa.skipped, [1, "8", {}, true], "a question can be skipped");
+    assert.equal(qa.skipText, "✕ Skipped");
+    // The newer kinds: free text with a placeholder and a helper line, and a number with a range, a default and a unit.
+    const qn = await page.evaluate(async () => {
+      const tab = tabs.get(1), c = tab.chat, out = {}, sent = [];
+      go.main.App.ChatAnswerQuestion = async (...a) => sent.push(a);
+      const wait = (ms = 60) => new Promise((r) => setTimeout(r, ms));
+      chatEvents(tab, [{ k: "question", req: "20", questions: [
+        { id: "Project name?", header: "Name", question: "Project name?", kind: "text", hint: "Used for the folder", placeholder: "my-shop", multi: false, other: true, options: [] },
+        { id: "How many slides?", header: "Slides", question: "How many slides?", kind: "number", min: 3, max: 20, step: 1, default: 8, unit: "slides", multi: false, other: false, options: [] }] }], true);
+      await wait();
+      const card = [...c.root.querySelectorAll(".qcard")].pop();
+      const send = card.querySelector(".q-send");
+      out.hint = card.querySelector(".q-hint")?.textContent;
+      out.placeholder = card.querySelector(".q-text").placeholder;
+      out.number = [card.querySelector(".q-number").value, card.querySelector(".q-number").min, card.querySelector(".q-number").max, card.querySelector(".q-range").value, card.querySelector(".q-unit").textContent];
+      out.disabledUntilText = send.disabled; // the number starts at its default; the name is still empty
+      const t = card.querySelector(".q-text");
+      t.value = "shop"; t.dispatchEvent(new Event("input", { bubbles: true }));
+      out.enabled = !send.disabled;
+      // Out of range is no answer.
+      const n = card.querySelector(".q-number");
+      n.value = "99"; n.dispatchEvent(new Event("input", { bubbles: true }));
+      out.rangeBlocks = send.disabled;
+      const r = card.querySelector(".q-range");
+      r.value = "12"; r.dispatchEvent(new Event("input", { bubbles: true }));
+      out.sliderMovesNumber = n.value;
+      send.click();
+      await wait();
+      out.sent = sent[0];
+      out.summary = [...card.querySelectorAll(".q-sum")].map((e) => e.textContent);
+      return out;
+    });
+    assert.equal(qn.hint, "Used for the folder", "a question's helper line is shown");
+    assert.equal(qn.placeholder, "my-shop", "a text question uses the AI's placeholder");
+    assert.deepEqual(qn.number, ["8", "3", "20", "8", "slides"], "a number question starts at its default, with its range and unit");
+    assert.ok(qn.disabledUntilText && qn.enabled && qn.rangeBlocks, "Send needs a text answer and a number inside the range");
+    assert.equal(qn.sliderMovesNumber, "12", "the slider moves the number");
+    assert.deepEqual(qn.sent, [1, "20", { "Project name?": ["shop"], "How many slides?": ["12"] }, false], "the answers go back as text");
+    assert.deepEqual(qn.summary, ["Name: shop", "Slides: 12 slides"], "the summary shows the unit");
+    // The tray panel never offers Allow/Deny for a question.
+    await page.evaluate(() => chatEvents(tabs.get(1), [{ k: "question", req: "9", questions: [{ id: "q", header: "Q", question: "Which?", multi: false, other: true, options: [] }] }], true));
+    assert.equal(await page.evaluate(() => traySnapshot().ask || null), null, "a question is answered in the chat, not from the tray");
+    await page.evaluate(() => { tabs.get(1).chat.asks.delete("9"); });
     // The AI's browser is a window of its own: the chat only gets a button that brings it forward,
     // and AIT tells it its colours.
     const bw = await page.evaluate(async () => {

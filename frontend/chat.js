@@ -257,6 +257,9 @@ function chatEvents(tab, evs, live = true) {
       case "ask":
         askCard(tab, e);
         break;
+      case "question":
+        questionCard(tab, e);
+        break;
       case "askclose": // answered somewhere else (the browser pane)
         closeAsk(tab, e);
         break;
@@ -633,6 +636,115 @@ function askCard(tab, e) {
   if (c.stick) scrollEnd(c);
 }
 
+// The AI asks the user a list of questions with options (Claude's AskUserQuestion,
+// ChatGPT's request_user_input). Each question takes one choice, several
+// choices, or typed text; the answers go back together.
+function questionCard(tab, e) {
+  const c = tab.chat, qs = e.questions || [];
+  ensureAssistant(c, true);
+  const el = document.createElement("div");
+  el.className = "askcard qcard anim";
+  const name = profile(tab.profile).name;
+  el.innerHTML = `
+    <div class="ak-h"><span class="ak-glyph">${SHIELD}</span><span><b>${esc(name)} ${qs.length === 1 ? "has a question" : `has ${qs.length} questions`}</b><span class="ak-d">Answer to let it carry on</span></span></div>
+    <div class="ak-body qs"></div>
+    <div class="ak-act"><button class="btn go q-send" disabled>Send answers</button><button class="btn quiet q-skip">Skip</button></div>`;
+  const body = el.querySelector(".qs");
+  const boxes = qs.map((q, i) => {
+    const box = document.createElement("div");
+    box.className = "q";
+    const type = q.multi ? "checkbox" : "radio";
+    box.innerHTML = `${q.header ? `<span class="q-chip"></span>` : ""}<div class="q-t"></div>${q.hint ? `<div class="q-hint"></div>` : ""}<div class="q-opts"></div>`;
+    if (q.header) box.querySelector(".q-chip").textContent = q.header;
+    box.querySelector(".q-t").textContent = q.question;
+    if (q.hint) box.querySelector(".q-hint").textContent = q.hint;
+    const opts = box.querySelector(".q-opts");
+    if (q.kind === "number") { // a quantity: a number box (and a slider when there is a range)
+      const row = document.createElement("div");
+      row.className = "q-num";
+      const start = q.default ?? q.min ?? 0;
+      const range = q.min !== undefined && q.max !== undefined;
+      row.innerHTML = `${range ? `<input type="range" class="q-range">` : ""}<input type="number" class="q-number"><span class="q-unit"></span>`;
+      const num = row.querySelector(".q-number"), rng = row.querySelector(".q-range");
+      for (const el of [num, rng]) {
+        if (!el) continue;
+        if (q.min !== undefined) el.min = q.min;
+        if (q.max !== undefined) el.max = q.max;
+        el.step = q.step ?? "any";
+        el.value = start;
+      }
+      row.querySelector(".q-unit").textContent = q.unit || "";
+      rng?.addEventListener("input", () => { num.value = rng.value; refresh(); });
+      num.addEventListener("input", () => { if (rng && num.value !== "") rng.value = num.value; refresh(); });
+      opts.append(row);
+      return { q, box, other: null, num };
+    }
+    for (const o of q.options || []) {
+      const row = document.createElement("label");
+      row.className = "q-opt";
+      row.innerHTML = `<input type="${type}" name="q${i}"><span class="q-ol"></span><span class="q-od"></span>`;
+      row.querySelector("input").value = o.label;
+      row.querySelector(".q-ol").textContent = o.label;
+      row.querySelector(".q-od").textContent = o.description || "";
+      opts.append(row);
+    }
+    let other = null;
+    if (q.other) {
+      const row = document.createElement("label");
+      row.className = "q-opt q-other";
+      row.innerHTML = `${(q.options || []).length ? `<input type="${type}" name="q${i}" class="q-oi">` : ""}<input class="q-text" type="${q.secret ? "password" : "text"}" spellcheck="false" placeholder="${(q.options || []).length ? "Other…" : "Type your answer"}">`;
+      other = row.querySelector(".q-text");
+      if (q.placeholder) other.placeholder = q.placeholder;
+      const oi = row.querySelector(".q-oi");
+      other.addEventListener("input", () => { if (oi && other.value) oi.checked = true; refresh(); });
+      opts.append(row);
+    }
+    return { q, box, other };
+  });
+  boxes.forEach((b) => body.append(b.box));
+  const value = ({ q, box, other, num }) => {
+    if (num) { // a number: valid when it is a number inside the range
+      const n = Number(num.value);
+      const ok = num.value.trim() !== "" && Number.isFinite(n) && (q.min === undefined || n >= q.min) && (q.max === undefined || n <= q.max);
+      return ok ? [String(n)] : [];
+    }
+    const picked = [...box.querySelectorAll("input[type=radio]:checked, input[type=checkbox]:checked")].filter((x) => !x.classList.contains("q-oi")).map((x) => x.value);
+    const typed = other?.value.trim();
+    if (typed) { if (q.multi || !(q.options || []).length) picked.push(typed); else picked.splice(0, picked.length, typed); }
+    return picked;
+  };
+  const send = el.querySelector(".q-send");
+  function refresh() { send.disabled = boxes.some((b) => !value(b).length); }
+  el.addEventListener("change", refresh);
+  refresh(); // a number question starts with its default, which counts as an answer
+  const finish = (summary, skipped) => {
+    c.asks.delete(e.req);
+    el.classList.add("answered", skipped ? "denied" : "allowed");
+    body.innerHTML = "";
+    for (const line of summary) { const d = document.createElement("div"); d.className = "q-sum"; d.textContent = line; body.append(d); }
+    el.querySelector(".ak-act").innerHTML = `<span class="ak-res">${skipped ? "✕ Skipped" : "✓ Answered"}</span>`;
+    setBusy(tab, true);
+    c.ta.focus();
+  };
+  send.addEventListener("click", () => {
+    if (send.disabled) return;
+    const answers = {};
+    boxes.forEach((b) => { answers[b.q.id] = value(b); });
+    API().ChatAnswerQuestion(tab.id, e.req, answers, false).catch((err) => toast(String(err)));
+    finish(boxes.map((b) => `${b.q.header || b.q.question}: ${b.q.secret ? "••••" : value(b).join(", ")}${b.q.unit ? " " + b.q.unit : ""}`), false);
+  });
+  el.querySelector(".q-skip").addEventListener("click", () => {
+    API().ChatAnswerQuestion(tab.id, e.req, {}, true).catch((err) => toast(String(err)));
+    finish(qs.map((q) => q.header || q.question), true);
+  });
+  el.addEventListener("keydown", (ev) => { if (ev.key === "Enter" && ev.target.classList.contains("q-text") && !send.disabled) { ev.preventDefault(); send.click(); } });
+  c.msg.append(el);
+  c.asks.set(e.req, { el, question: true });
+  setBusy(tab, true, "Waiting for you");
+  if (c.stick) scrollEnd(c);
+  (el.querySelector("input") || el.querySelector("button")).focus({ preventScroll: true });
+}
+
 function closeAsk(tab, e) {
   const c = tab.chat, a = c.asks.get(e.req);
   if (!a) return;
@@ -930,8 +1042,9 @@ function composerKey(e, tab) {
     if (c.busy) { API().ChatControl(tab.id, "interrupt"); e.preventDefault(); return; }
   }
   // Permission card shortcuts while the composer is empty.
-  if (c.asks.size && !c.ta.value && /^[123]$/.test(e.key)) {
-    const [req, a] = [...c.asks.entries()].pop();
+  const pendingAsks = [...c.asks.entries()].filter(([, a]) => !a.question); // questions are answered on their card
+  if (pendingAsks.length && !c.ta.value && /^[123]$/.test(e.key)) {
+    const [req, a] = pendingAsks.pop();
     const map = a.always ? { 1: "allow", 2: "always", 3: "deny" } : { 1: "allow", 2: "deny" };
     if (map[e.key]) { answerAsk(tab, req, map[e.key]); e.preventDefault(); return; }
   }

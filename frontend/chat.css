@@ -395,3 +395,24 @@ body.desk .w-tip { border-radius: 16px; font-family: var(--ui); }
 .turn.ai:hover .turn-actions, .turn-actions:focus-within { opacity: 1; }
 .turn-actions button { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 5px; color: var(--muted); font: 11px var(--ui); cursor: pointer; }
 .turn-actions button:hover { background: var(--soft); color: var(--text); }
+
+/* ---- the AI's questions: a card with the options to choose from ---------------------- */
+.qcard .qs { display: flex; flex-direction: column; gap: 14px; padding: 4px 0 2px; }
+.q-chip { display: inline-block; margin-bottom: 4px; padding: 1px 8px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-size: .8em; font-weight: 600; }
+.q-t { font-weight: 600; margin-bottom: 6px; }
+.q-opts { display: flex; flex-direction: column; gap: 5px; }
+.q-opt { display: grid; grid-template-columns: auto 1fr; column-gap: 9px; row-gap: 1px; align-items: baseline; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--hair); cursor: pointer; transition: border-color .12s, background .12s; }
+.q-opt:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--hair)); background: var(--soft); }
+.q-opt:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.q-opt input[type=radio], .q-opt input[type=checkbox] { accent-color: var(--accent); margin: 0; grid-row: 1 / span 2; align-self: center; }
+.q-ol { font-weight: 600; } .q-od { grid-column: 2; color: var(--muted); font-size: .92em; }
+.q-other { grid-template-columns: auto 1fr; } .q-other:not(:has(.q-oi)) { grid-template-columns: 1fr; }
+.q-text { width: 100%; box-sizing: border-box; background: transparent; border: 0; border-bottom: 1px solid var(--hair); color: var(--text); font: inherit; padding: 2px 0; outline: none; user-select: text; }
+.q-text:focus { border-bottom-color: var(--accent); }
+.q-sum { color: var(--muted); padding: 1px 0; }
+.q-hint { color: var(--muted); margin: -3px 0 6px; font-size: .92em; }
+.q-num { display: flex; align-items: center; gap: 10px; }
+.q-range { flex: 1; accent-color: var(--accent); }
+.q-number { width: 90px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--hair); background: transparent; color: var(--text); font: inherit; outline: none; user-select: text; }
+.q-number:focus { border-color: var(--accent); }
+.q-unit { color: var(--muted); }

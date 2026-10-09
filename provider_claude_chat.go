@@ -110,6 +110,100 @@ func (c *claude) ChatReply(st *ChatState, req, decision string, ask json.RawMess
 	return append(b, '\n')
 }
 
+// claudeQuestionsIn is AskUserQuestion's input: choice questions (the
+// default), free-text ones and number ones.
+type claudeQuestionsIn struct {
+	Questions []struct {
+		Question     string   `json:"question"`
+		Header       string   `json:"header"`
+		Kind         string   `json:"kind"`
+		Description  string   `json:"description"`
+		MultiSelect  bool     `json:"multiSelect"`
+		Placeholder  string   `json:"placeholder"`
+		Min          *float64 `json:"min"`
+		Max          *float64 `json:"max"`
+		Step         *float64 `json:"step"`
+		DefaultValue *float64 `json:"defaultValue"`
+		Unit         string   `json:"unit"`
+		Options      []struct {
+			Label       string `json:"label"`
+			Description string `json:"description"`
+		} `json:"options"`
+	} `json:"questions"`
+}
+
+// claudeQuestions turns AskUserQuestion's input into the page's questions.
+func claudeQuestions(input json.RawMessage) []map[string]any {
+	var in claudeQuestionsIn
+	if json.Unmarshal(input, &in) != nil {
+		return nil
+	}
+	var out []map[string]any
+	for _, q := range in.Questions {
+		kind := q.Kind
+		if kind == "" {
+			kind = "choice"
+		}
+		opts := []map[string]any{}
+		for _, o := range q.Options {
+			opts = append(opts, map[string]any{"label": o.Label, "description": o.Description})
+		}
+		// Claude keys its answers by the question's own text; the user may always write their own.
+		m := map[string]any{"id": q.Question, "header": q.Header, "question": q.Question, "kind": kind, "hint": q.Description,
+			"multi": q.MultiSelect && kind == "choice", "options": opts, "other": kind != "number"}
+		if q.Placeholder != "" {
+			m["placeholder"] = q.Placeholder
+		}
+		for k, v := range map[string]*float64{"min": q.Min, "max": q.Max, "step": q.Step, "default": q.DefaultValue} {
+			if v != nil {
+				m[k] = *v
+			}
+		}
+		if q.Unit != "" {
+			m["unit"] = q.Unit
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// ChatAnswers answers AskUserQuestion: the answers go back in the tool's own
+// input, as question text -> the chosen label (a list of labels for a
+// multiple-choice question; the typed text, or the number as text, otherwise).
+func (c *claude) ChatAnswers(st *ChatState, req string, answers map[string][]string, skipped bool, ask json.RawMessage) []byte {
+	var a struct {
+		Input json.RawMessage `json:"input"`
+	}
+	json.Unmarshal(ask, &a)
+	resp := map[string]any{"behavior": "deny", "message": "The user chose not to answer these questions. Carry on with your best judgment and say what you assumed."}
+	if !skipped {
+		var in map[string]json.RawMessage
+		json.Unmarshal(a.Input, &in)
+		if in == nil {
+			in = map[string]json.RawMessage{}
+		}
+		var asked claudeQuestionsIn
+		json.Unmarshal(a.Input, &asked)
+		multi := map[string]bool{}
+		for _, q := range asked.Questions {
+			multi[q.Question] = q.MultiSelect && (q.Kind == "" || q.Kind == "choice")
+		}
+		given := map[string]any{}
+		for q, list := range answers {
+			if multi[q] {
+				given[q] = list
+			} else {
+				given[q] = strings.Join(list, ", ")
+			}
+		}
+		in["answers"], _ = json.Marshal(given)
+		resp = map[string]any{"behavior": "allow", "updatedInput": in}
+	}
+	b, _ := json.Marshal(map[string]any{"type": "control_response", "response": map[string]any{
+		"subtype": "success", "request_id": req, "response": resp}})
+	return append(b, '\n')
+}
+
 func (c *claude) ChatControl(st *ChatState, what string) []byte {
 	if m, ok := strings.CutPrefix(what, "model:"); ok {
 		req := map[string]any{"subtype": "set_model"}
@@ -298,6 +392,11 @@ func (c *claude) ChatDecode(line []byte, st *ChatState) []Ev {
 			return nil
 		}
 		st.Asks[l.RequestID] = l.Request
+		if r.Tool == "AskUserQuestion" {
+			if qs := claudeQuestions(r.Input); len(qs) > 0 {
+				return []Ev{{"k": "question", "req": l.RequestID, "questions": qs}}
+			}
+		}
 		var input any
 		json.Unmarshal(r.Input, &input)
 		name := r.Display

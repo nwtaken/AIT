@@ -1052,7 +1052,7 @@ function traySnapshot() {
   const turns = c?.thread.querySelectorAll(".turn.ai");
   const blocks = turns?.length ? turns[turns.length - 1].querySelectorAll(".md") : [];
   const reply = blocks.length ? blocks[blocks.length - 1].textContent.trim().replace(/\s+/g, " ").slice(0, 400) : "";
-  const pending = c?.asks?.size ? [...c.asks.entries()][0] : null;
+  const pending = [...(c?.asks || [])].find(([, a]) => !a.question) || null; // a question is answered in the chat
   const ask = pending && { req: pending[0], always: pending[1].always, labels: pending[1].labels, title: pending[1].el.querySelector(".ak-h b").textContent,
     detail: (pending[1].el.querySelector(".ak-cmd")?.textContent || pending[1].el.querySelector(".ak-d").textContent).slice(0, 200) };
   return {

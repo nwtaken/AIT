@@ -1103,3 +1103,153 @@ func TestFixMcp(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 }
+
+// Claude's AskUserQuestion reaches the page as a list of questions, and the
+// answers go back inside the tool's own input.
+func TestClaudeAskUserQuestion(t *testing.T) {
+	t.Setenv("AIT_FAKE_CLI", "1")
+	root, home, cwd := t.TempDir(), t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o644)
+	b, _ := json.Marshal(Config{Accounts: []Account{{ID: "main", Label: "Claude 1"}}, StartingDir: cwd})
+	os.WriteFile(filepath.Join(root, "config.json"), b, 0o644)
+	s, _ := newStoreAt(root, home)
+	registry["claude"] = fakeChat{registry["claude"].(*claude)}
+	a := NewApp(s)
+	evs := make(chan Ev, 256)
+	a.emit = func(event string, data ...any) {
+		if event == "chat:ev" {
+			for _, e := range data[1].([]Ev) {
+				evs <- e
+			}
+		}
+	}
+	if _, err := a.Open(OpenRequest{ID: 1, Profile: "claude", Account: "main", Cols: 80, Rows: 24}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { a.Close(1); a.finalTabsSave() }()
+	wait := func(k string) Ev {
+		for {
+			select {
+			case e := <-evs:
+				if e["k"] == k {
+					return e
+				}
+			case <-time.After(8 * time.Second):
+				t.Fatalf("no %s event", k)
+			}
+		}
+	}
+	turn := func(answer func(req string)) string {
+		a.ChatSend(1, "ask me", nil)
+		q := wait("question")
+		qs := q["questions"].([]map[string]any)
+		if len(qs) != 2 || qs[0]["id"] != "Which database?" || qs[0]["header"] != "Database" || qs[0]["multi"] != false || qs[1]["multi"] != true || qs[0]["other"] != true {
+			t.Fatalf("questions %v", qs)
+		}
+		if opts := qs[0]["options"].([]map[string]any); len(opts) != 2 || opts[0]["label"] != "Postgres" || opts[0]["description"] != "Relational" {
+			t.Fatalf("options %v", opts)
+		}
+		answer(q["req"].(string))
+		return wait("delta")["text"].(string)
+	}
+	got := turn(func(req string) {
+		if err := a.ChatAnswerQuestion(1, req, map[string][]string{"Which database?": {"SQLite"}, "Which extras?": {"Auth", "Docs"}}, false); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got != `echo: answered SQLite | [Auth Docs] | questions kept: 2` {
+		t.Errorf("answers reached the AI as %q", got)
+	}
+	wait("done")
+	got = turn(func(req string) {
+		if err := a.ChatAnswerQuestion(1, req, nil, true); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.HasPrefix(got, "echo: declined: The user chose not to answer") {
+		t.Errorf("skipping reached the AI as %q", got)
+	}
+	if err := a.ChatAnswerQuestion(99, "x", nil, false); err == nil {
+		t.Error("answering in a tab that is gone is an error")
+	}
+}
+
+// ChatGPT's request_user_input: questions with options, free text and secret
+// ones; answers go back keyed by question id.
+func TestCodexRequestUserInput(t *testing.T) {
+	st := &ChatState{Asks: map[string]json.RawMessage{}, Data: map[string]any{}, Send: func([]byte) {}}
+	line := []byte(`{"jsonrpc":"2.0","id":7,"method":"item/tool/requestUserInput","params":{"threadId":"t","turnId":"u","itemId":"i","isBlocking":true,"questions":[` +
+		`{"id":"db","header":"Database","question":"Which database?","isOther":false,"isSecret":false,"options":[{"label":"Postgres","description":"Relational"},{"label":"SQLite","description":"A file"}]},` +
+		`{"id":"name","header":"Name","question":"What should it be called?","isOther":true,"isSecret":false,"options":null},` +
+		`{"id":"key","header":"Key","question":"API key?","isOther":false,"isSecret":true,"options":null}]}}`)
+	evs := (&codex{}).ChatDecode(line, st)
+	if len(evs) != 1 || evs[0]["k"] != "question" || evs[0]["req"] != "7" {
+		t.Fatalf("event %v", evs)
+	}
+	qs := evs[0]["questions"].([]map[string]any)
+	if len(qs) != 3 || qs[0]["id"] != "db" || len(qs[0]["options"].([]map[string]any)) != 2 || qs[0]["other"] != false {
+		t.Fatalf("choice question %v", qs[0])
+	}
+	if qs[1]["other"] != true || len(qs[1]["options"].([]map[string]any)) != 0 {
+		t.Errorf("a question without options is typed text: %v", qs[1])
+	}
+	if qs[2]["secret"] != true {
+		t.Errorf("a secret question is masked: %v", qs[2])
+	}
+	reply := func(answers map[string][]string, skipped bool) string {
+		return strings.TrimSpace(string((&codex{}).ChatAnswers(st, "7", answers, skipped, st.Asks["7"])))
+	}
+	if got := reply(map[string][]string{"db": {"SQLite"}, "name": {"shop"}}, false); got != `{"id":7,"result":{"answers":{"db":{"answers":["SQLite"]},"name":{"answers":["shop"]}}}}` {
+		t.Errorf("answers: %s", got)
+	}
+	if got := reply(nil, true); got != `{"id":7,"result":{"answers":{}}}` {
+		t.Errorf("skipped: %s", got)
+	}
+	if args := strings.Join((&codex{}).ChatArgs(Launch{}, "ask"), " "); !strings.Contains(args, "features.default_mode_request_user_input=true") {
+		t.Errorf("the question tool is not switched on: %s", args)
+	}
+}
+
+// The installed Claude's AskUserQuestion also has free-text and number
+// questions; each kind is shown with its details and answered the way the CLI
+// reads it (a list for multiple choice, text otherwise).
+func TestClaudeQuestionKinds(t *testing.T) {
+	input := json.RawMessage(`{"questions":[` +
+		`{"question":"Which extras?","header":"Extras","multiSelect":true,"options":[{"label":"Auth","description":"Login"},{"label":"Docs","description":"Pages"}]},` +
+		`{"question":"Project name?","header":"Name","kind":"text","description":"Used for the folder","placeholder":"my-shop","options":[]},` +
+		`{"question":"How many slides?","header":"Slides","kind":"number","min":3,"max":20,"step":1,"defaultValue":8,"unit":"slides","options":[]}]}`)
+	qs := claudeQuestions(input)
+	if len(qs) != 3 {
+		t.Fatalf("questions %v", qs)
+	}
+	if qs[0]["kind"] != "choice" || qs[0]["multi"] != true || qs[0]["other"] != true {
+		t.Errorf("choice: %v", qs[0])
+	}
+	if qs[1]["kind"] != "text" || qs[1]["hint"] != "Used for the folder" || qs[1]["placeholder"] != "my-shop" || qs[1]["multi"] != false || qs[1]["other"] != true {
+		t.Errorf("text: %v", qs[1])
+	}
+	if n := qs[2]; n["kind"] != "number" || n["min"] != 3.0 || n["max"] != 20.0 || n["step"] != 1.0 || n["default"] != 8.0 || n["unit"] != "slides" || n["other"] != false {
+		t.Errorf("number: %v", n)
+	}
+	st := &ChatState{Asks: map[string]json.RawMessage{}, Data: map[string]any{}, Send: func([]byte) {}}
+	ask, _ := json.Marshal(map[string]any{"input": json.RawMessage(input)})
+	out := (&claude{}).ChatAnswers(st, "q1", map[string][]string{"Which extras?": {"Auth", "Docs"}, "Project name?": {"shop"}, "How many slides?": {"12"}}, false, ask)
+	var r struct {
+		Response struct {
+			Response struct {
+				Behavior     string
+				UpdatedInput struct {
+					Answers map[string]any
+				}
+			}
+		}
+	}
+	if err := json.Unmarshal(out, &r); err != nil {
+		t.Fatal(err)
+	}
+	got := r.Response.Response.UpdatedInput.Answers
+	if r.Response.Response.Behavior != "allow" || fmt.Sprint(got["Which extras?"]) != "[Auth Docs]" || got["Project name?"] != "shop" || got["How many slides?"] != "12" {
+		t.Errorf("answers %v", got)
+	}
+}

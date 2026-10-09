@@ -220,6 +220,9 @@ func (a *App) runHelper(p Provider, acct Account, cwd, perm string, extra []stri
 						cur.WriteString(s)
 					}
 				}
+			case "question": // nobody to ask: a helper works alone
+				req, _ := e["req"].(string)
+				declineQuestion(cp, proc, st, req)
 			case "ask":
 				req, _ := e["req"].(string)
 				answer := "allow"
