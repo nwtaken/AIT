@@ -88,8 +88,10 @@ const dev = http.createServer((req, res) => { res.setHeader("content-type", "tex
     const askedBefore = asked.length;
     const d = await tool("browser_navigate", { url: `http://localhost:${dev.address().port}/` });
     assert.ok(!d.err && asked.length === askedBefore, "a local dev server opens without asking: " + d.text.slice(0, 100));
-    const e = await tool("browser_evaluate", { function: "() => { document.getElementById('out').click(); return 'clicked'; }" });
-    assert.ok(e.err && /did not allow example\.net/.test(e.text), "a click that leads to a refused site is caught: " + e.text);
+    // The navigation a click starts may lag behind the click's own result; the AI never sees the page: the next call is refused at the latest.
+    let e = await tool("browser_evaluate", { function: "() => { document.getElementById('out').click(); return 'clicked'; }" });
+    if (!e.err) { await new Promise((r) => setTimeout(r, 1500)); e = await tool("browser_evaluate", { function: "() => document.title" }); }
+    assert.ok(e.err && /did not allow example\.net/.test(e.text) && !/Example Domain/.test(e.text), "a click that leads to a refused site is caught: " + e.text);
     const where = await tool("browser_evaluate", { function: "() => location.href" });
     assert.ok(/about:blank/.test(where.text), "and the page is sent back to a blank page: " + where.text);
 
