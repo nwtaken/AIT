@@ -93,6 +93,9 @@ var mcpCategories = []struct {
 // (URL or command line) and its tool names. A server reached over the web
 // that fits nothing else is a website; the rest is "Other".
 func mcpCategory(name, where string, tools []string) string {
+	if name == browserServer {
+		return "Websites"
+	}
 	hay := strings.ToLower(name + " " + where + " " + strings.Join(tools, " "))
 	for _, c := range mcpCategories {
 		for _, k := range c.keys {

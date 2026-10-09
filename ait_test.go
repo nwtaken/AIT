@@ -129,6 +129,15 @@ func fakeClaudeStream() {
 			w(`{"type":"result","subtype":"error","is_error":true,"result":"reviewer broke","duration_ms":12,"total_cost_usd":0}`)
 			continue
 		}
+		if text == "browse" { // says what it will do, opens a page in the AI's browser, which fails
+			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"b0","usage":{"input_tokens":5}}}}`)
+			w(`{"type":"assistant","message":{"id":"b0","content":[{"type":"text","text":"I'll open the docs. They have the install steps."}]}}`)
+			w(`{"type":"assistant","message":{"id":"b0","content":[{"type":"tool_use","id":"b1","name":"mcp__ait-browser__browser_navigate","input":{"url":"https://example.com/docs"}}]}}`)
+			w(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b1","is_error":true,"content":"### Error\nnavigation failed"}]}}`)
+			w(`{"type":"assistant","message":{"id":"b2","content":[{"type":"tool_use","id":"b3","name":"Read","input":{"file_path":"app.go"}}]}}`)
+			w(`{"type":"result","subtype":"success","is_error":false,"duration_ms":12,"total_cost_usd":0}`)
+			continue
+		}
 		if text == "review quietly" { // the marker only in the complete message, no deltas
 			w(`{"type":"stream_event","event":{"type":"message_start","message":{"id":"mq","usage":{"input_tokens":5}}}}`)
 			w(`{"type":"assistant","message":{"id":"mq","content":[{"type":"text","text":"[[AIT_SUPEREVIEW]]"}]}}`)

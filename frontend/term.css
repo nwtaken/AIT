@@ -228,6 +228,8 @@ body:not(.desk) .sl-folder { margin-left: auto; padding-left: 16px; color: var(-
 .su-ok { color: var(--ok); font-weight: 700; } .su-ok.dim { color: var(--faint); }
 .st-mem { display: block; margin-top: 4px; font: 11px var(--mono); color: var(--faint); word-break: break-all; }
 .st-btns { display: inline-flex; gap: 6px; flex: none; }
+.st-sites { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 0 6px; } .st-sites:empty { display: none; }
+.st-site .mdl { font-size: 9px; opacity: .6; }
 .st-input, .st-select { height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--flyout-line); background: var(--bg); color: var(--text); font: 12.5px var(--ui); outline: none; min-width: 170px; }
 .st-input:focus, .st-select:focus { border-color: var(--accent); }
 

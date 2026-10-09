@@ -148,6 +148,8 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 	textBlocks := map[any]bool{}
 	var turnText strings.Builder
 	lastText := "" // the latest complete text block of the turn's last message
+	planText := "" // what the AI said since its last tool call: the plan for the next one
+	browserCalls := map[any]bool{}
 	for sc.Scan() {
 		if t.gen.Load() != gen {
 			continue // replaced; drain quietly
@@ -167,6 +169,17 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 				lastText = ""
 			case "final":
 				lastText, _ = e["text"].(string)
+				planText = lastText
+			case "tool":
+				if name, _ := e["name"].(string); strings.HasPrefix(name, browserPrefix) {
+					a.browserStep(t, planText, name, e["input"])
+					browserCalls[e["id"]] = true
+				}
+				planText = ""
+			case "result":
+				if browserCalls[e["id"]] && e["ok"] == false {
+					a.browserFailed(t, fmt.Sprint(e["text"]))
+				}
 			case "start":
 				textBlocks[e["i"]] = e["type"] == "text"
 			case "delta":
@@ -176,6 +189,7 @@ func (a *App) chatPump(t *Tab, cp ChatProvider, proc *chatProc, st *ChatState, s
 					}
 				}
 			case "done":
+				planText = ""
 				t.working.Store(false)
 				a.trayTooltip()
 				text := strings.TrimSpace(turnText.String())
@@ -315,6 +329,9 @@ func (a *App) chatSend(id int, text string, files []string) error {
 
 // ChatAnswer answers a permission card: allow | always | deny.
 func (a *App) ChatAnswer(id int, req, decision string) error {
+	if strings.HasPrefix(req, askPrefix) { // a site the AI wants to open in its browser
+		return a.browserAnswer(req, decision)
+	}
 	t := a.tab(id)
 	if t == nil {
 		return fmt.Errorf("no tab")

@@ -28,9 +28,11 @@ PY
 go test ./...
 # The page: every script must parse, and the browser UI test must pass when
 # Playwright is installed (npx playwright keeps it in the npm cache).
-for f in frontend/*.js scripts/*.cjs; do node --check "$f"; done
+for f in frontend/*.js scripts/*.cjs browserassets/*; do node --check "$f"; done
 PW="$(ls -d "${LOCALAPPDATA:-}"/npm-cache/_npx/*/node_modules/playwright 2>/dev/null | head -1 || true)"
 if [[ -n "$PW" ]]; then NODE_PATH="$(dirname "$PW")" node scripts/chat-ui.test.cjs; else echo "Playwright not found: UI test skipped"; fi
+# The AIs' browser, in a real Chrome/Edge (skips itself when it is not installed).
+node scripts/browser.test.cjs
 wails build -s -trimpath -nsis -ldflags "-X main.Version=$V"
 
 mkdir -p dist

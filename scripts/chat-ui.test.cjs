@@ -16,7 +16,7 @@ const assert = require("node:assert/strict");
     for (const file of ["style.css", "chat.css", "term.css"]) {
       await page.addStyleTag({ path: path.join(frontend, file) });
     }
-    for (const file of ["vendor/marked.js", "app.js", "chat.js", "settings.js", "setup.js"]) {
+    for (const file of ["vendor/marked.js", "app.js", "chat.js", "browserpane.js", "settings.js", "setup.js"]) {
       await page.addScriptTag({ path: path.join(frontend, file) });
     }
     await page.evaluate(() => {
@@ -111,6 +111,88 @@ const assert = require("node:assert/strict");
     assert.ok(posted.some((m) => m.startsWith("h:")) && posted.includes("hide"), "tray panel reports its height and actions");
     assert.ok(posted.includes('send:{"tab":1,"text":"run the tests"}'), "a prompt typed in the panel is sent");
     assert.ok(posted.includes('ask:{"tab":1,"req":"r9","d":"allow"}'), "a permission can be answered from the panel");
+    // The AI hands the user a step in its browser: its own wording, closed when answered elsewhere.
+    const help = await page.evaluate(async () => {
+      const tab = tabs.get(1), c = tab.chat, out = {};
+      chatEvents(tab, [{ k: "ask", req: "ait-browser-help-1", tool: "BrowserHelp", desc: "Solve the CAPTCHA", input: {}, labels: { allow: "I'm done", deny: "Can't do it" } }], true);
+      await new Promise((r) => setTimeout(r, 50));
+      const card = c.root.querySelector(".askcard:last-of-type");
+      out.title = card.querySelector(".ak-h b").textContent;
+      out.detail = card.querySelector(".ak-d").textContent;
+      out.buttons = [...card.querySelectorAll("[data-d]")].map((b) => b.textContent.replace(/\s*\d$/, ""));
+      out.tray = traySnapshot().ask?.labels;
+      chatEvents(tab, [{ k: "askclose", req: "ait-browser-help-1", text: "✓ Done in the browser" }], true);
+      await new Promise((r) => setTimeout(r, 50));
+      out.after = card.querySelector(".ak-res")?.textContent;
+      out.pending = c.asks.size;
+      return out;
+    });
+    assert.equal(help.title, "Claude needs your help in the browser", "the help card says what it is");
+    assert.equal(help.detail, "Solve the CAPTCHA", "and what to do");
+    assert.deepEqual(help.buttons, ["I'm done", "Can't do it"], "with its own buttons");
+    assert.deepEqual(help.tray, { allow: "I'm done", deny: "Can't do it" }, "the tray panel uses them too");
+    assert.ok(help.after === "✓ Done in the browser" && help.pending === 0, "the card closes when it is answered in the browser");
+    // The AI's browser: a pane beside the chat that shows the steps, the page and the questions,
+    // and tells AIT where the native page goes.
+    const bp = await page.evaluate(async () => {
+      const tab = tabs.get(1), c = tab.chat, out = {}, log = [];
+      go.main.App.BrowserBounds = async (...a) => log.push(a);
+      go.main.App.BrowserNav = async (...a) => log.push(["nav", ...a]);
+      go.main.App.ChatAnswer = async (...a) => log.push(["answer", ...a]);
+      const wait = (ms = 220) => new Promise((r) => setTimeout(r, ms));
+      const lastBounds = () => [...log].reverse().find((l) => typeof l[5] === "boolean");
+      tab.pane.classList.add("pane", "active"); // the test's tab is a bare box: give it the real pane's layout
+      browserGone(tab); // start fresh (the help card above opened one)
+      browserStep(tab, "plan", "I'll open the docs.");
+      browserStep(tab, "do", "Open example.com");
+      browserPage(tab, "https://example.com/docs", "Docs");
+      await wait();
+      out.shown = tab.pane.classList.contains("bshow");
+      out.steps = [...tab.bp.steps.children].map((e) => e.className.replace("bp-s ", "") + ":" + e.textContent);
+      out.url = tab.bp.el.querySelector(".bp-host").textContent + "|" + tab.bp.el.querySelector(".bp-title").textContent;
+      out.chip = !c.root.querySelector(".c-browser").hidden;
+      const b1 = lastBounds();
+      out.visible = b1[5] === true && b1[3] > 100 && b1[4] > 100;
+      out.chatShrunk = c.root.getBoundingClientRect().right <= tab.bp.el.getBoundingClientRect().left + 1;
+      // A site question shows in the pane as well, and is answered from there.
+      chatEvents(tab, [{ k: "ask", req: "ait-browser-3", tool: "WebFetch", desc: "open example.org", input: { url: "https://example.org" }, always: true }], true);
+      await wait(50);
+      out.ask = tab.bp.asks.textContent;
+      tab.bp.asks.querySelector('[data-d="always"]').click();
+      await wait(50);
+      out.answered = log.find((l) => l[0] === "answer");
+      out.asksLeft = tab.bp.asks.children.length;
+      // Anything drawn over the page hides the native page; closing it brings it back.
+      $("#scrim").hidden = false;
+      await wait();
+      out.hiddenForOverlay = lastBounds()[5] === false;
+      $("#scrim").hidden = true;
+      await wait();
+      out.backAfterOverlay = lastBounds()[5] === true;
+      // Hide and show again with the chip.
+      tab.bp.el.querySelector('[data-act="hide"]').click();
+      await wait();
+      out.hidden = !tab.pane.classList.contains("bshow") && lastBounds()[5] === false;
+      c.root.querySelector(".c-browser").click();
+      await wait();
+      out.reshown = tab.pane.classList.contains("bshow") && lastBounds()[5] === true;
+      tab.bp.el.querySelector('[data-nav="back"]').click();
+      out.nav = log.find((l) => l[0] === "nav");
+      browserGone(tab);
+      out.gone = !tab.bp && !tab.pane.classList.contains("bshow") && c.root.querySelector(".c-browser").hidden;
+      return out;
+    });
+    assert.ok(bp.shown && bp.chip, "the browser pane opens beside the chat on its first step");
+    assert.deepEqual(bp.steps, ["plan:I'll open the docs.", "do:Open example.com"], "the plan and the step show in the pane");
+    assert.equal(bp.url, "example.com|Docs", "the pane shows the page's site and title");
+    assert.ok(bp.visible && bp.chatShrunk, "AIT is told where the page goes, and the chat makes room");
+    assert.ok(/example\.org/.test(bp.ask), "a site question shows in the pane");
+    assert.deepEqual(bp.answered, ["answer", 1, "ait-browser-3", "always"], "and is answered from it");
+    assert.equal(bp.asksLeft, 0, "the question leaves the pane once answered");
+    assert.ok(bp.hiddenForOverlay && bp.backAfterOverlay, "the native page steps aside for anything AIT draws over it");
+    assert.ok(bp.hidden && bp.reshown, "the pane hides, and the chip brings it back");
+    assert.deepEqual(bp.nav, ["nav", 1, "back"], "the toolbar's buttons reach the page");
+    assert.ok(bp.gone, "the pane goes when the chat's browser does");
     await page.evaluate(() => Object.assign(go.main.App, { McpOff: async () => ["elevenlabs"], McpToggle: async (...a) => calls.push(["mcp", ...a]) }));
     await page.click(".c-mcp");
     await page.evaluate(() => chatEvents(tabs.get(1), [{ k: "mcp", servers: [{ name: "elevenlabs", status: "connected", tools: 27, category: "Other AIs" }, { name: "docs", status: "connected", tools: 8, category: "Websites" }, { name: "Roblox_Studio", status: "connected", tools: 30, category: "Roblox" }] }], true));

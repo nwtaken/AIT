@@ -55,10 +55,11 @@ type Tab struct {
 	working atomic.Bool
 	// reviewed is true once a review ran for the user's latest message
 	// (chat.go): one review per request.
-	reviewed atomic.Bool
-	fixing   atomic.Bool // an MCP server is being fixed (mcpfix.go)
-	backMu   sync.Mutex
-	backlog  []byte
+	reviewed   atomic.Bool
+	fixing     atomic.Bool  // an MCP server is being fixed (mcpfix.go)
+	browserKey atomic.Value // string: this launch's key in the browser hub (browser.go)
+	backMu     sync.Mutex
+	backlog    []byte
 	// Native chat (chat.go): the agent runs in streaming mode, no PTY.
 	native    bool
 	chat      *chatProc
@@ -92,6 +93,7 @@ type App struct {
 	activeTab   atomic.Int64 // the tab in front, for reopening (tabs.go)
 	tabsSave    tabsSaver    // debounced saving of the open tabs (tabs.go)
 	panel       trayPanel    // the tray icon's status panel (tray.go)
+	browser     browserHub   // the AIs' browser (browser.go)
 
 	mu      sync.Mutex
 	tabs    map[int]*Tab
@@ -121,6 +123,8 @@ func (a *App) startup(ctx context.Context) {
 	}
 	// The first agent starts now, while the window is still loading.
 	go a.prepareStandby()
+	go a.browserInstall()
+	go a.browserFollow()
 	a.startUpdateChecks()
 	a.startTray()
 	// Warm the history cache once the agent has started; doing it at once
@@ -140,6 +144,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 
 func (a *App) shutdown(ctx context.Context) {
 	a.finalTabsSave() // before the tabs are closed below
+	a.closeBrowsers()
 	a.killStandby()
 	a.installOnExit()
 	stopTray()
@@ -401,6 +406,9 @@ func (a *App) Close(id int) {
 	}
 	a.mu.Unlock()
 	a.queueTabsSave()
+	if key, _ := t.browserKey.Load().(string); key != "" {
+		go a.closeBrowser(key)
+	}
 
 	t.mu.Lock()
 	t.closed = true
@@ -554,6 +562,11 @@ func (a *App) launch(t *Tab, acct Account, prompt string) error {
 	l := Launch{Extra: a.store.Config().Args[p.ID()], McpOff: a.store.Config().McpOff[p.ID()]}
 	if k, ok := p.(mcpKnower); ok {
 		l.McpOff = k.McpKnown(home, l.McpOff)
+	}
+	if chatOf(p) != nil && a.store.Config().ChatView != "terminal" {
+		if srv := a.browserMcp(t, p); srv != nil {
+			l.Mcp = append(l.Mcp, *srv)
+		}
 	}
 	m := t.model
 	if acct.Model != nil {

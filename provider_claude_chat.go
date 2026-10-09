@@ -39,6 +39,15 @@ func (c *claude) ChatArgs(l Launch, perm string) []string {
 	default:
 		args = append(args, "--permission-mode", "default")
 	}
+	if len(l.Mcp) > 0 {
+		servers, allow := map[string]any{}, []string{}
+		for _, m := range l.Mcp {
+			servers[m.Name] = map[string]any{"type": "stdio", "command": m.Command, "args": m.Args}
+			allow = append(allow, "mcp__"+m.Name) // the browser asks about sites itself
+		}
+		b, _ := json.Marshal(map[string]any{"mcpServers": servers})
+		args = append(args, "--mcp-config", string(b), "--allowedTools="+strings.Join(allow, ","))
+	}
 	args = append(args, l.Extra...)
 	if l.ResumeID != "" {
 		args = append(args, "--resume", l.ResumeID)

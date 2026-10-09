@@ -79,6 +79,8 @@ function update(next) {
     ask.querySelector(".ak-t").textContent = s.ask.title;
     ask.querySelector(".ak-x").textContent = s.ask.detail;
     ask.querySelector('[data-d="always"]').hidden = !s.ask.always;
+    ask.querySelector('[data-d="allow"]').textContent = s.ask.labels?.allow || "Allow";
+    ask.querySelector('[data-d="deny"]').textContent = s.ask.labels?.deny || "Deny";
   }
   const ta = $(".mn-input textarea");
   ta.disabled = !s.canSend;

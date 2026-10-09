@@ -33,6 +33,13 @@ func (c *codex) ChatArgs(l Launch, perm string) []string {
 	for _, name := range l.McpOff {
 		args = append(args, "-c", "mcp_servers."+name+".enabled=false")
 	}
+	for _, m := range l.Mcp {
+		prefix := "mcp_servers." + m.Name
+		argv, _ := json.Marshal(m.Args)
+		args = append(args, "-c", prefix+".command="+tomlString(m.Command), "-c", prefix+".args="+string(argv),
+			"-c", prefix+".default_tools_approval_mode=\"approve\"", // AIT's own servers ask the user themselves
+			"-c", prefix+".startup_timeout_sec=30", "-c", prefix+".tool_timeout_sec=900") // a step may wait for the user
+	}
 	for i := 0; i < len(l.Extra); i++ {
 		switch a := l.Extra[i]; {
 		case a == "-c" && i+1 < len(l.Extra): // rules (developer_instructions) and user config
@@ -126,6 +133,19 @@ func (c *codex) ChatReply(st *ChatState, req, decision string, ask json.RawMessa
 		} `json:"params"`
 	}
 	json.Unmarshal(ask, &a)
+	if a.Method == "mcpServer/elicitation/request" { // an MCP tool's approval: accept or decline
+		action := "accept"
+		if decision == "deny" {
+			action = "decline"
+		}
+		id, err := strconv.Atoi(req)
+		var rid any = req
+		if err == nil {
+			rid = id
+		}
+		b, _ := json.Marshal(map[string]any{"id": rid, "result": map[string]any{"action": action}})
+		return append(b, '\n')
+	}
 	command := strings.Contains(a.Method, "commandExecution")
 	var d any = "accept"
 	switch decision {
@@ -300,6 +320,8 @@ func (c *codex) ChatDecode(line []byte, st *ChatState) []Ev {
 		return []Ev{{"k": "delta", "i": p.ItemID, "text": p.Delta}}
 	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "execCommandApproval", "applyPatchApproval":
 		return c.ask(st, line, m)
+	case "mcpServer/elicitation/request":
+		return c.askMcp(st, line, m)
 	case "account/rateLimits/updated":
 		var p struct {
 			RL struct {
@@ -432,6 +454,24 @@ func (c *codex) item(st *ChatState, it codexItem, done bool) []Ev {
 		return []Ev{{"k": "result", "id": it.ID, "ok": true, "text": ""}}
 	}
 	return nil
+}
+
+// askMcp turns an MCP server's question (Codex asks before an MCP tool runs)
+// into a permission card.
+func (c *codex) askMcp(st *ChatState, line []byte, m codexMsg) []Ev {
+	req := strings.Trim(string(m.ID), `"`)
+	st.Asks[req] = json.RawMessage(append([]byte(nil), line...))
+	var p struct {
+		Server  string `json:"serverName"`
+		Message string `json:"message"`
+		URL     string `json:"url"`
+	}
+	json.Unmarshal(m.Params, &p)
+	desc := p.Message
+	if p.URL != "" {
+		desc += " " + p.URL
+	}
+	return []Ev{{"k": "ask", "req": req, "tool": "mcp__" + p.Server, "desc": desc, "input": map[string]any{}, "raw": string(line)}}
 }
 
 // ask turns an approval request into a permission card.

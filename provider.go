@@ -124,9 +124,16 @@ type efforter interface {
 type Launch struct {
 	NewID    string
 	ResumeID string
-	Prompt   string   // sent as the first message; "" for none
-	Extra    []string // user's extra arguments from config.json
-	McpOff   []string // MCP servers the user switched off for this AI
+	Prompt   string      // sent as the first message; "" for none
+	Extra    []string    // user's extra arguments from config.json
+	McpOff   []string    // MCP servers the user switched off for this AI
+	Mcp      []McpServer // servers AIT adds to this start (the browser, browser.go)
+}
+
+// McpServer is a stdio MCP server AIT gives an AI for one start.
+type McpServer struct {
+	Name, Command string
+	Args          []string
 }
 
 // limitHit is a usage-limit or signed-out error found in a transcript.

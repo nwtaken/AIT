@@ -20,8 +20,13 @@ function toggleCtl(name, on) {
   return `<button class="switch ${on ? "on" : ""}" data-k="${name}" role="switch" aria-checked="${on}"><i></i></button>`;
 }
 
-function openSettings() {
+function siteChips(sites) {
+  return (sites || []).map((h) => `<button class="pre st-site" data-host="${esc(h)}" title="Ask again before opening ${esc(h)}">${esc(h)} <span class="mdl">&#xE8BB;</span></button>`).join("");
+}
+
+async function openSettings() {
   hideMenu();
+  const browserOk = await API().BrowserAvailable().catch(() => false);
   const s = ui.settings;
   const cu = s.custom || {};
   const p = $("#settings");
@@ -77,6 +82,15 @@ function openSettings() {
           <span class="st-btns"><button class="btn quiet st-memopen">Open</button><button class="btn quiet st-memchange">Change</button></span></div>
         <div class="row"><div><b>AI rules</b><span>Instructions every AI follows first. Pick a preset or write your own.</span></div><button class="btn quiet st-rules">Edit rules</button></div>
         <div class="row"><div><b>Accounts &amp; advanced</b><span>Accounts, extra arguments and other options live in the config file.</span></div><button class="btn quiet st-config">Open config</button></div>
+      </section>
+      <section>
+        <h4>Browser for the AIs</h4>
+        ${browserOk ? `
+        <div class="row"><div><b>Keep browsing sessions</b><span>The AIs' browser keeps its logins and cookies between runs. Off: a fresh private browser every time.</span></div>${toggleCtl("browserKeep", !!s.browserKeep)}</div>
+        <div class="row"><div><b>Sites always allowed</b><span class="st-sites-note">${(s.browserSites || []).length ? "The AIs open these without asking. Click one to ask again." : "None yet: the AIs ask the first time they open each site."}</span></div>
+          <span class="st-btns"><button class="btn quiet st-bclear">Clear browser data</button></span></div>
+        <div class="st-sites">${siteChips(s.browserSites)}</div>` : `
+        <div class="row"><div><b>Not available</b><span>The AIs' browser needs Node.js on this PC; it sets itself up the first time AIT starts with it.</span></div></div>`}
       </section>
       <section>
         <h4>Updates</h4>
@@ -152,6 +166,15 @@ function openSettings() {
   p.querySelector(".st-rules").addEventListener("click", () => { closeSettings(); openRules(); });
   API().MemoryFolder().then((d) => { p.querySelector(".st-mem").textContent = d; });
   p.querySelector(".st-memopen").addEventListener("click", () => API().OpenMemory());
+  p.querySelector(".st-bclear")?.addEventListener("click", async () => {
+    try { await API().BrowserClearData(); toast("Browser data cleared"); } catch (err) { toast(String(err)); }
+  });
+  p.querySelectorAll(".st-site").forEach((b) => b.addEventListener("click", async () => {
+    try { await API().BrowserForget(b.dataset.host); } catch (err) { toast(String(err)); return; }
+    ui.settings.browserSites = (ui.settings.browserSites || []).filter((h) => h !== b.dataset.host);
+    b.remove();
+    if (!ui.settings.browserSites.length) p.querySelector(".st-sites-note").textContent = "None yet: the AIs ask the first time they open each site.";
+  }));
   p.querySelector(".st-memchange").addEventListener("click", async () => {
     try { const d = await API().PickMemoryFolder(); if (d) { p.querySelector(".st-mem").textContent = d; toast("Shared memory: " + d + ". New tabs use it.", 3000); } }
     catch (err) { toast(String(err)); }

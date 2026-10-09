@@ -1038,7 +1038,7 @@ function traySnapshot() {
   const blocks = turns?.length ? turns[turns.length - 1].querySelectorAll(".md") : [];
   const reply = blocks.length ? blocks[blocks.length - 1].textContent.trim().replace(/\s+/g, " ").slice(0, 400) : "";
   const pending = c?.asks?.size ? [...c.asks.entries()][0] : null;
-  const ask = pending && { req: pending[0], always: pending[1].always, title: pending[1].el.querySelector(".ak-h b").textContent,
+  const ask = pending && { req: pending[0], always: pending[1].always, labels: pending[1].labels, title: pending[1].el.querySelector(".ak-h b").textContent,
     detail: (pending[1].el.querySelector(".ak-cmd")?.textContent || pending[1].el.querySelector(".ak-d").textContent).slice(0, 200) };
   return {
     tab: tab?.id || 0, canSend: !!(tab?.native && c && !c.reading && !c.loading), reply, ask,
@@ -1142,6 +1142,10 @@ async function boot() {
   RT().EventsOn("review:start", (id, name) => { const t = tabs.get(id); if (t?.native) reviewState(t, "start", name); });
   RT().EventsOn("review:step", (id, step) => { const t = tabs.get(id); if (t?.native) reviewStep(t, step); });
   RT().EventsOn("review:done", (id, name, feedback) => { const t = tabs.get(id); if (t?.native) reviewState(t, "done", name, feedback); });
+  RT().EventsOn("browser:open", (id) => { const t = tabs.get(id); if (t?.native) browserSeen(t); });
+  RT().EventsOn("browser:step", (id, kind, text) => { const t = tabs.get(id); if (t?.native) browserStep(t, kind, text); });
+  RT().EventsOn("browser:page", (id, url, title) => { const t = tabs.get(id); if (t?.native) browserPage(t, url, title); });
+  RT().EventsOn("browser:gone", (id) => { const t = tabs.get(id); if (t?.native) browserGone(t); });
   RT().EventsOn("mcpfix:step", (id, name, step) => { const t = tabs.get(id); if (t?.native) mcpFixStep(t, name, step); });
   RT().EventsOn("mcpfix:open", (id, name, url) => { const t = tabs.get(id); if (t?.native) mcpFixOpen(t, name, url); });
   RT().EventsOn("mcpfix:done", (id, name, fixed, summary) => { const t = tabs.get(id); if (t?.native) mcpFixDone(t, name, fixed, summary); });
