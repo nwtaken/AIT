@@ -304,7 +304,7 @@ func (c *codex) Chats(home string) []Chat {
 
 func (c *codex) readChat(p string) (Chat, bool) {
 	ch := Chat{Provider: "codex", ID: c.SessionID(p), Path: p}
-	head, _ := headTail(p, 256<<10, 0)
+	head := headLines(p, 256<<10, 16<<20)
 	for _, line := range bytes.Split(head, []byte{'\n'}) {
 		var l struct {
 			Type    string `json:"type"`

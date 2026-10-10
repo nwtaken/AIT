@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"io"
@@ -342,7 +343,8 @@ func (c *claude) Chats(home string) []Chat {
 // user typed near the start.
 func (c *claude) readChat(p string) (Chat, bool) {
 	ch := Chat{Provider: "claude", ID: c.SessionID(p), Path: p}
-	head, tail := headTail(p, 96<<10, 256<<10)
+	head := headLines(p, 96<<10, 16<<20)
+	_, tail := headTail(p, 0, 256<<10)
 	var firstPrompt string
 	for _, line := range bytes.Split(head, []byte{'\n'}) {
 		var l struct {
@@ -443,6 +445,29 @@ func readLines(path string, offset int64, fn func([]byte) bool) int64 {
 func stampedBefore(ts string, since time.Time) bool {
 	t, err := time.Parse(time.RFC3339Nano, ts)
 	return err == nil && t.Before(since)
+}
+
+// headLines is the start of a file in whole lines: at least n bytes, with the
+// line in progress at that point read to its end (to max in all). A chat that
+// began as a handover has the whole earlier conversation in its first line;
+// cutting that line in half left the chat without a title, so AIT hid it from
+// History and could not reopen it.
+func headLines(p string, n, max int64) []byte {
+	f, err := os.Open(p)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	r := bufio.NewReaderSize(f, 64<<10)
+	var out []byte
+	for int64(len(out)) < n {
+		line, err := r.ReadBytes('\n')
+		out = append(out, line...)
+		if err != nil || int64(len(out)) >= max {
+			break
+		}
+	}
+	return out
 }
 
 func headTail(p string, headN, tailN int64) (head, tail []byte) {
